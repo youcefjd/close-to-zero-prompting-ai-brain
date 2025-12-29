@@ -206,6 +206,225 @@ Validation, error learning, and loop prevention.
               ✅ COMPLETE
 ```
 
+## Getting Started
+
+### Prerequisites
+
+- **Python 3.11+** installed
+- **Ollama** installed and running (for local LLM)
+- **Git** for cloning the repository
+- **Terminal/Command Line** access
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/youcefjd/close-to-zero-prompting-ai-brain.git
+cd close-to-zero-prompting-ai-brain
+```
+
+### Step 2: Set Up Python Environment
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+# On macOS/Linux:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Step 3: Install and Start Ollama
+
+```bash
+# Install Ollama (if not already installed)
+# macOS/Linux: https://ollama.ai/download
+# Or use: curl -fsSL https://ollama.ai/install.sh | sh
+
+# Start Ollama server
+ollama serve
+
+# In a separate terminal, pull the model
+ollama pull llama3.1:latest
+```
+
+**Note**: Keep the `ollama serve` process running in a separate terminal.
+
+### Step 4: Configure Environment Variables (Optional)
+
+Create a `.env` file in the project root:
+
+```bash
+# Web Search (choose one)
+TAVILY_API_KEY=your-tavily-api-key-here
+# OR
+SERPER_API_KEY=your-serper-api-key-here
+
+# Home Assistant (if using HA integration)
+HA_TOKEN=your-home-assistant-token
+
+# Other API keys as needed
+COOKIDOO_API_KEY=your-cookidoo-key
+```
+
+**Get API Keys**:
+- **Tavily AI**: https://tavily.com (recommended for web search)
+- **Serper.dev**: https://serper.dev (alternative for web search)
+
+**Note**: The `.env` file is gitignored for security. Never commit secrets.
+
+### Step 5: Configure Authentication (As Needed)
+
+#### AWS (Host Inheritance Pattern)
+
+```bash
+# Configure AWS credentials
+aws configure
+
+# Or use SSO
+aws sso login
+
+# Verify it works
+aws sts get-caller-identity
+```
+
+#### Kubernetes (Host Inheritance Pattern)
+
+```bash
+# Configure kubectl (example for EKS)
+aws eks update-kubeconfig --name your-cluster-name --region us-east-1
+
+# Verify it works
+kubectl cluster-info
+```
+
+#### API Keys (Secret Vault Pattern)
+
+```bash
+# Use the secure script
+./scripts/add_secret.sh COOKIDOO_API_KEY
+
+# Or manually add to .env
+echo "COOKIDOO_API_KEY=your-key" >> .env
+```
+
+### Step 6: Test the Brain
+
+```bash
+# Simple test (consultation - no execution)
+python meta_agent.py "what is the latest version of Kubernetes?"
+
+# The brain will:
+# 1. Classify the request
+# 2. Use web_search tool (if configured)
+# 3. Return current information
+```
+
+### Step 7: First Real Task
+
+Try a task that requires self-evolution:
+
+```bash
+python meta_agent.py "check s3 logs for errors"
+```
+
+**What to Expect**:
+1. Brain detects missing S3 tool
+2. Generates MCP server code (🟡 Yellow - asks permission)
+3. Checks AWS authentication (prompts if needed)
+4. Requests deployment approval (🔴 Red - always required)
+5. Executes diagnosis after approval
+
+**Approve Requests**:
+```bash
+# List pending approvals
+python approve.py list
+
+# Approve a request
+python approve.py approve <approval_id>
+```
+
+### Step 8: Verify Installation
+
+Check that everything is working:
+
+```bash
+# Check Python version
+python --version  # Should be 3.11+
+
+# Check Ollama is running
+curl http://localhost:11434/api/tags  # Should return model list
+
+# Check dependencies
+pip list | grep -E "langchain|langgraph|ollama"
+
+# Check available tools
+python -c "from meta_agent import MetaAgent; print(MetaAgent()._discover_tools())"
+```
+
+### Troubleshooting Setup
+
+#### Ollama Not Running
+```bash
+# Start Ollama
+ollama serve
+
+# Check if it's running
+curl http://localhost:11434/api/tags
+```
+
+#### Model Not Found
+```bash
+# Pull the model
+ollama pull llama3.1:latest
+
+# List available models
+ollama list
+```
+
+#### Import Errors
+```bash
+# Reinstall dependencies
+pip install -r requirements.txt --upgrade
+
+# Check virtual environment is activated
+which python  # Should show venv path
+```
+
+#### Permission Errors
+```bash
+# Make scripts executable
+chmod +x scripts/add_secret.sh
+
+# Check file permissions
+ls -la scripts/
+```
+
+### Quick Start Checklist
+
+- [ ] Repository cloned
+- [ ] Python 3.11+ installed
+- [ ] Virtual environment created and activated
+- [ ] Dependencies installed (`pip install -r requirements.txt`)
+- [ ] Ollama installed and running
+- [ ] Model pulled (`ollama pull llama3.1:latest`)
+- [ ] Environment variables configured (`.env` file)
+- [ ] Authentication configured (AWS, K8s, etc. as needed)
+- [ ] Test query successful
+- [ ] Approval system working (`approve.py`)
+
+### Next Steps
+
+Once setup is complete:
+1. Read the [Usage Example](USAGE_EXAMPLE.md) for detailed workflows
+2. Check [Architecture Deep Dive](ARCHITECTURE_DEEP_DIVE.md) for technical details
+3. Review [EKS Pod Crash Example](EKS_POD_CRASH_EXAMPLE.md) for risk level examples
+4. Start using the brain for your tasks!
+
 ## Usage
 
 ### Basic Usage
