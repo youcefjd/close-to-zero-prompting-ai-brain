@@ -20,6 +20,18 @@ class DockerAgent(BaseSubAgent):
 - Image management
 - Network and volume operations
 
+CRITICAL INSTRUCTIONS:
+- You MUST execute tools to complete tasks. DO NOT just provide explanations.
+- If asked to "list containers" or "show containers", you MUST call docker_ps() and return the actual results
+- If asked to "show logs", you MUST call docker_logs() and return the actual output
+- If asked to "check status", you MUST call docker_ps() or docker_inspect() and show the actual status
+- DO NOT provide general explanations - EXECUTE the requested action and show the results
+
+Example: If user says "List all Docker containers", you MUST:
+1. Call docker_ps() immediately
+2. Return the actual container list from the tool result
+3. Format it clearly showing container names, status, and other details
+
 You work AUTONOMOUSLY - analyze the task, use Docker tools, and complete it without asking for permission."""
         
         super().__init__("DockerAgent", system_prompt)
@@ -68,6 +80,15 @@ You work AUTONOMOUSLY - analyze the task, use Docker tools, and complete it with
             # Extract tool calls from response
             tool_calls = self._extract_tool_calls(response_text)
             
+            # If no tool calls but task asks to list/show containers, force docker_ps call
+            if not tool_calls:
+                task_lower = task.lower()
+                if any(keyword in task_lower for keyword in ["list", "show", "display", "get"]) and \
+                   any(keyword in task_lower for keyword in ["container", "docker"]):
+                    # Force docker_ps call
+                    print(f"  💡 No tool call detected, but task requires container listing - calling docker_ps()")
+                    tool_calls = [{"tool": "docker_ps", "args": [], "kwargs": {}}]
+            
             if not tool_calls:
                 # Check if task is complete
                 if "success" in response_text.lower() or "complete" in response_text.lower():
@@ -113,18 +134,43 @@ You work AUTONOMOUSLY - analyze the task, use Docker tools, and complete it with
             if self.sanitizer.has_secrets(results_str):
                 print(f"  ⚠️  WARNING: Secrets still detected after sanitization - applying additional sanitization")
                 sanitization = self.sanitizer.sanitize(results_str, context="final_context")
-                messages.append(AIMessage(content=f"Tool execution results: {sanitization.sanitized_content}"))
-            else:
-                messages.append(AIMessage(content=f"Tool execution results: {results_str}"))
+                results_str = sanitization.sanitized_content
+            
+            # Compress large tool outputs before adding to context
+            compressed_output = self.context_manager.compress_tool_output(results_str, max_length=1000)
+            messages.append(AIMessage(content=f"Tool execution results: {compressed_output}"))
+            
+            # Aggressively prune context immediately after adding tool results
+            messages = self._prune_messages(messages)
             
             # Check if we're done
             if all(r.get("status") == "success" for r in results):
-                return {
+                # Build response with container data if docker_ps was called
+                response_data = {
                     "status": "success",
                     "message": "Task completed successfully",
                     "results": results,
                     "agent": self.agent_name
                 }
+                
+                # If docker_ps was called, include the container list in the response
+                for tool_call, result in zip(tool_calls, results):
+                    if tool_call.get("tool") == "docker_ps" and result.get("status") == "success":
+                        if "containers" in result:
+                            response_data["containers"] = result["containers"]
+                            # Format a nice message with container info
+                            containers = result["containers"]
+                            container_list = []
+                            for container in containers:
+                                name = container.get("Names", "N/A")
+                                status = container.get("Status", "N/A")
+                                state = container.get("State", "N/A")
+                                container_list.append(f"  - {name}: {state} ({status})")
+                            
+                            response_data["message"] = f"Found {len(containers)} container(s):\n" + "\n".join(container_list)
+                        break
+                
+                return response_data
             
             iteration += 1
         

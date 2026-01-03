@@ -125,6 +125,14 @@ class GovernanceFramework:
                 "⚠️ CRITICAL: I want to deploy a new MCP server. This gives the agent new capabilities. Approve?",
                 allowed_contexts=[]  # Never auto-approve - most dangerous operation
             ),
+            ToolGovernance(
+                "self_modify_codebase",
+                RiskLevel.RED,
+                "Self-modify codebase (self-healing)",
+                True,
+                "⚠️ CRITICAL: I want to modify my own codebase to fix an issue. This is self-healing. Approve?",
+                allowed_contexts=["dev", "staging"]  # Allow in dev/staging, require approval in production
+            ),
         ]
         
         # Register all tools
@@ -138,6 +146,39 @@ class GovernanceFramework:
     def check_permission(self, tool_name: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Check if tool can be executed autonomously."""
         if tool_name not in self.tool_registry:
+            # Special handling for self_modify_codebase
+            if tool_name == "self_modify_codebase":
+                context = context or {}
+                environment = context.get("environment", "production")
+                issue_type = context.get("issue_type", "unknown")
+                severity = context.get("severity", "medium")
+                
+                # Allow in dev/staging for critical issues, require approval in production
+                if environment in ["dev", "development", "staging", "local"]:
+                    if severity == "critical" and issue_type in ["reliability", "bug"]:
+                        return {
+                            "allowed": True,
+                            "risk_level": RiskLevel.RED.value,
+                            "requires_approval": False,
+                            "message": "Self-healing allowed in non-production for critical reliability issues"
+                        }
+                
+                # Default: require approval
+                return {
+                    "allowed": False,
+                    "risk_level": RiskLevel.RED.value,
+                    "requires_approval": True,
+                    "approval_message": f"Self-modification of codebase requires approval (severity: {severity}, type: {issue_type})",
+                    "tool": ToolGovernance(
+                        tool_name,
+                        RiskLevel.RED,
+                        "Self-modify codebase",
+                        True,
+                        f"⚠️ CRITICAL: Self-healing wants to modify codebase. Approve?",
+                        allowed_contexts=["dev", "staging"]
+                    )
+                }
+            
             # Unknown tool - default to RED (most restrictive)
             return {
                 "allowed": False,

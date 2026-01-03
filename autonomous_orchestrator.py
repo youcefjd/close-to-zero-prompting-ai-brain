@@ -7,6 +7,7 @@ from sub_agents.config_agent import ConfigAgent
 from fact_checker import FactChecker
 from emergency_stop import get_emergency_stop, EmergencyStopException
 import json
+import asyncio
 
 
 class AutonomousOrchestrator:
@@ -97,12 +98,15 @@ class AutonomousOrchestrator:
         try:
             # Try async execution first, fall back to sync
             if hasattr(agent, 'execute_async'):
-                import asyncio
                 try:
-                    result = asyncio.run(agent.execute_async(task, context))
-                except RuntimeError:
-                    # Event loop already running, use sync
+                    # Check if event loop is already running
+                    loop = asyncio.get_running_loop()
+                    # If we get here, loop is running - need to use sync or create task
+                    # For now, fall back to sync to avoid nesting issues
                     result = agent.execute(task, context)
+                except RuntimeError:
+                    # No event loop running, create one
+                    result = asyncio.run(agent.execute_async(task, context))
             else:
                 result = agent.execute(task, context)
         except EmergencyStopException as e:
@@ -120,6 +124,68 @@ class AutonomousOrchestrator:
                     "message": str(e),
                     "cost_summary": getattr(agent, 'cost_tracker', {}).get_summary() if hasattr(agent, 'cost_tracker') else {}
                 }
+            
+            # Attempt self-healing for codebase errors
+            try:
+                from self_healing import get_self_healing_system
+                import traceback
+                
+                stack_trace = traceback.format_exc()
+                healing_system = get_self_healing_system()
+                
+                healing_result = healing_system.detect_and_heal(
+                    error=e,
+                    stack_trace=stack_trace,
+                    context={
+                        "task": task,
+                        "agent": agent.agent_name,
+                        "environment": context.get("environment", "production") if context else "production"
+                    }
+                )
+                
+                if healing_result.success:
+                    print(f"\n✅ SELF-HEALING SUCCESS: {healing_result.message}")
+                    # Retry execution after healing
+                    try:
+                        if hasattr(agent, 'execute_async'):
+                            try:
+                                loop = asyncio.get_running_loop()
+                                result = agent.execute(task, context)
+                            except RuntimeError:
+                                result = asyncio.run(agent.execute_async(task, context))
+                        else:
+                            result = agent.execute(task, context)
+                        
+                        # If retry succeeds, return success
+                        if result.get("status") == "success":
+                            result["self_healed"] = True
+                            result["healing_details"] = {
+                                "issue_type": healing_result.issue.issue_type if healing_result.issue else None,
+                                "fix_applied": healing_result.fix_applied
+                            }
+                            return result
+                    except Exception as retry_error:
+                        print(f"  ⚠️  Retry after healing failed: {retry_error}")
+                        # Fall through to return error
+                
+                elif healing_result.issue_detected:
+                    print(f"\n🔍 SELF-HEALING DETECTED ISSUE: {healing_result.message}")
+                    if healing_result.fix_proposed and not healing_result.fix_applied:
+                        if "approval" in healing_result.message.lower():
+                            return {
+                                "status": "needs_approval",
+                                "reason": "self_healing_approval_required",
+                                "message": healing_result.message,
+                                "healing_details": {
+                                    "issue_type": healing_result.issue.issue_type if healing_result.issue else None,
+                                    "approval_id": next((c.get("approval_id") for c in healing_result.changes if c.get("type") == "approval_requested"), None)
+                                }
+                            }
+            except Exception as healing_error:
+                print(f"  ⚠️  Self-healing system error: {healing_error}")
+                # Fall through to raise original error
+            
+            # If self-healing didn't work or wasn't applicable, raise original error
             raise
         
         # Step 7: Post-execution validation
@@ -147,19 +213,73 @@ class AutonomousOrchestrator:
                     success=False
                 )
         
-        # Step 8: Handle secondary agents if needed
+        # Step 8: Handle secondary agents if needed (parallelize if async)
         secondary_agents = routing.get("secondary_agents", [])
         if secondary_agents and result.get("status") == "success":
+            # Collect async-capable agents for parallel execution
+            async_agents = []
+            sync_agents = []
+            
             for sec_agent_name in secondary_agents:
                 if sec_agent_name in self.agents:
-                    print(f"\n🔄 Executing secondary agent: {sec_agent_name}")
-                    sec_result = self.agents[sec_agent_name].execute(task, {"primary_result": result})
-                    if sec_result.get("status") != "success":
-                        result["secondary_errors"] = result.get("secondary_errors", [])
-                        result["secondary_errors"].append({
-                            "agent": sec_agent_name,
-                            "error": sec_result.get("message")
-                        })
+                    sec_agent = self.agents[sec_agent_name]
+                    if hasattr(sec_agent, 'execute_async'):
+                        async_agents.append((sec_agent_name, sec_agent))
+                    else:
+                        sync_agents.append((sec_agent_name, sec_agent))
+            
+            # Execute async agents in parallel
+            if async_agents:
+                async def execute_secondary_async():
+                    tasks = [
+                        agent.execute_async(task, {"primary_result": result})
+                        for _, agent in async_agents
+                    ]
+                    return await asyncio.gather(*tasks, return_exceptions=True)
+                
+                try:
+                    # Try to get running loop
+                    loop = asyncio.get_running_loop()
+                    # If loop is running, we can't use asyncio.run, so execute sequentially
+                    # This is a limitation - ideally the orchestrator would be async too
+                    for sec_agent_name, sec_agent in async_agents:
+                        print(f"\n🔄 Executing secondary agent: {sec_agent_name}")
+                        sec_result = sec_agent.execute(task, {"primary_result": result})
+                        if sec_result.get("status") != "success":
+                            result["secondary_errors"] = result.get("secondary_errors", [])
+                            result["secondary_errors"].append({
+                                "agent": sec_agent_name,
+                                "error": sec_result.get("message")
+                            })
+                except RuntimeError:
+                    # No loop running, can parallelize
+                    print(f"\n🔄 Executing {len(async_agents)} secondary agents in parallel...")
+                    async_results = asyncio.run(execute_secondary_async())
+                    
+                    for (sec_agent_name, _), sec_result in zip(async_agents, async_results):
+                        if isinstance(sec_result, Exception):
+                            result["secondary_errors"] = result.get("secondary_errors", [])
+                            result["secondary_errors"].append({
+                                "agent": sec_agent_name,
+                                "error": str(sec_result)
+                            })
+                        elif isinstance(sec_result, dict) and sec_result.get("status") != "success":
+                            result["secondary_errors"] = result.get("secondary_errors", [])
+                            result["secondary_errors"].append({
+                                "agent": sec_agent_name,
+                                "error": sec_result.get("message")
+                            })
+            
+            # Execute sync agents sequentially
+            for sec_agent_name, sec_agent in sync_agents:
+                print(f"\n🔄 Executing secondary agent: {sec_agent_name}")
+                sec_result = sec_agent.execute(task, {"primary_result": result})
+                if sec_result.get("status") != "success":
+                    result["secondary_errors"] = result.get("secondary_errors", [])
+                    result["secondary_errors"].append({
+                        "agent": sec_agent_name,
+                        "error": sec_result.get("message")
+                    })
         
         return result
     

@@ -25,11 +25,20 @@ The system is designed to:
 - [Key Features](#key-features)
 - [Architecture](#architecture)
 - [Getting Started](#getting-started)
-- [Complete Functionality Reference](#complete-functionality-reference)
+- [Documentation](#documentation)
 - [Usage Examples](#usage-examples)
 - [Configuration](#configuration)
 - [Best Practices](#best-practices)
 - [Troubleshooting](#troubleshooting)
+
+## Documentation
+
+Essential guides for understanding and using the system:
+
+- **[SETUP.md](SETUP.md)** - Setup and installation instructions
+- **[COMPREHENSIVE_SAFETY_AUDIT.md](COMPREHENSIVE_SAFETY_AUDIT.md)** - Complete safety, governance, and autonomy audit
+- **[SELF_HEALING_GUIDE.md](SELF_HEALING_GUIDE.md)** - Self-healing system documentation
+- **[VERSATILITY_ARCHITECTURE.md](VERSATILITY_ARCHITECTURE.md)** - Architecture and versatility explanation
 
 ---
 

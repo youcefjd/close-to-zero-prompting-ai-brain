@@ -232,6 +232,44 @@ class ContextManager:
         # Return messages in order
         return [msg for _, msg in sorted(kept_messages, key=lambda x: x[0] if x[0] >= 0 else -1)]
     
+    def compress_tool_output(self, output: str, max_length: int = 1000) -> str:
+        """Compress large tool outputs before adding to context.
+        
+        Args:
+            output: Tool output to compress
+            max_length: Maximum length before compression
+            
+        Returns:
+            Compressed output
+        """
+        if len(output) <= max_length:
+            return output
+        
+        # Try to extract key information from JSON-like output
+        import json
+        try:
+            # Try to parse as JSON
+            data = json.loads(output)
+            if isinstance(data, dict):
+                # Extract status and key fields
+                compressed = {
+                    "status": data.get("status", "unknown"),
+                    "message": data.get("message", "")[:200] if data.get("message") else "",
+                }
+                # Keep important fields
+                for key in ["exit_code", "file_path", "container_name", "entity_id"]:
+                    if key in data:
+                        compressed[key] = data[key]
+                
+                compressed_str = json.dumps(compressed, indent=2)
+                if len(compressed_str) <= max_length:
+                    return compressed_str
+        except:
+            pass
+        
+        # If not JSON or compression didn't help, truncate
+        return output[:max_length] + f"\n... [TRUNCATED: {len(output)} chars total]"
+    
     def _summarize_messages(self, messages: List[BaseMessage]) -> str:
         """Summarize a list of messages.
         

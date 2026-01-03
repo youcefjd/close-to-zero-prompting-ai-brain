@@ -250,12 +250,34 @@ Task: {task}
         tool_calls = []
         
         # Look for tool call patterns: tool_name(arg1=value1, arg2=value2)
+        # Also look for tool_name() with no args
         pattern = r'(\w+)\(([^)]*)\)'
         matches = re.findall(pattern, response)
         
+        # Also check for standalone tool names that are known tools
+        known_tools = list(self.tools.keys())
+        for tool_name in known_tools:
+            # Look for patterns like "I'll call docker_ps" or "calling docker_ps" or just "docker_ps()"
+            if re.search(rf'\b{re.escape(tool_name)}\s*\(', response, re.IGNORECASE):
+                # Already captured by pattern above
+                continue
+            # Check for explicit mentions like "I need to use docker_ps" - be more aggressive
+            if re.search(rf'(call|use|execute|run)\s+{re.escape(tool_name)}', response, re.IGNORECASE):
+                # If it's mentioned in context of calling, add it
+                if tool_name not in [tc["tool"] for tc in tool_calls]:
+                    tool_calls.append({
+                        "tool": tool_name,
+                        "args": [],
+                        "kwargs": {}
+                    })
+        
         for tool_name, args_str in matches:
+            # Only process if it's a known tool
+            if tool_name not in self.tools:
+                continue
+                
             # Parse arguments
-            args = {}
+            args = []
             kwargs = {}
             
             # Simple parsing - can be enhanced
@@ -265,11 +287,16 @@ Task: {task}
                     # Handle key=value pairs
                     for part in args_str.split(','):
                         part = part.strip()
+                        if not part:
+                            continue
                         if '=' in part:
                             key, value = part.split('=', 1)
                             key = key.strip()
                             value = value.strip().strip('"').strip("'")
                             kwargs[key] = value
+                        else:
+                            # Positional argument
+                            args.append(part.strip().strip('"').strip("'"))
                 except:
                     pass
             
