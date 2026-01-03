@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tools import write_file, run_shell
 import json
@@ -17,44 +17,103 @@ from mcp_servers.homeassistant_tools import (
     init_ha_client
 )
 from mcp_servers.web_search_tools import web_search
+from output_sanitizer import get_sanitizer
+from emergency_stop import get_emergency_stop, EmergencyStopException
+from llm_provider import LLMProvider, create_llm_provider
+from cost_tracker import CostTracker, get_cost_tracker, CostLimit
+from context_manager import ContextManager, get_context_manager
+from dynamic_tool_registry import get_tool_registry, DynamicToolRegistry
+import asyncio
 
 
 class BaseSubAgent(ABC):
     """Base class for all sub-agents."""
     
-    def __init__(self, agent_name: str, system_prompt: str):
+    def __init__(
+        self,
+        agent_name: str,
+        system_prompt: str,
+        llm_provider: Optional[LLMProvider] = None,
+        cost_tracker: Optional[CostTracker] = None,
+        context_manager: Optional[ContextManager] = None
+    ):
         self.agent_name = agent_name
-        self.llm = ChatOllama(model="llama3.1:latest", temperature=0.7)
         self.system_prompt = system_prompt
+        
+        # Use provided LLM provider or create default
+        if llm_provider:
+            self.llm_provider = llm_provider
+        else:
+            self.llm_provider = create_llm_provider("ollama", model="gemma3:4b", temperature=0.7)
+        
+        # Legacy LLM for backward compatibility
+        self.llm = ChatOllama(model="gemma3:4b", temperature=0.7)
+        
+        # Cost tracker
+        if cost_tracker:
+            self.cost_tracker = cost_tracker
+        else:
+            costs = self.llm_provider.get_cost_per_1k_tokens()
+            self.cost_tracker = get_cost_tracker(
+                cost_per_1k_input=costs["input"],
+                cost_per_1k_output=costs["output"]
+            )
+        
+        # Context manager
+        if context_manager:
+            self.context_manager = context_manager
+        else:
+            self.context_manager = get_context_manager(max_tokens=8000)
+        
+        # Tool registry (dynamic)
+        if hasattr(self, 'tool_registry') and self.tool_registry:
+            self.tool_registry_instance = self.tool_registry
+        else:
+            self.tool_registry_instance = get_tool_registry()
+        
+        # Discover and register tools
+        self.tool_registry_instance.discover_tools()
+        
+        # Get tools from registry
         self.tools = self._get_available_tools()
         self.execution_history = []
+        self.sanitizer = get_sanitizer()
+        self.emergency_stop = get_emergency_stop()
         
     def _get_available_tools(self) -> Dict[str, Any]:
-        """Get all available tools this agent can use."""
-        return {
-            # File operations
+        """Get all available tools this agent can use (from dynamic registry)."""
+        tools = {}
+        
+        # Get tools from dynamic registry
+        for tool_name in self.tool_registry_instance.list_tools():
+            tool_metadata = self.tool_registry_instance.get_tool(tool_name)
+            if tool_metadata:
+                tools[tool_name] = tool_metadata.function
+        
+        # Also include hardcoded tools for backward compatibility
+        # (These should eventually be moved to tool registry)
+        hardcoded_tools = {
             "write_file": write_file,
             "run_shell": run_shell,
-            
-            # Docker tools
             "docker_ps": docker_ps,
             "docker_logs": docker_logs,
             "docker_exec": docker_exec,
             "docker_restart": docker_restart,
             "docker_inspect": docker_inspect,
             "docker_compose_up": docker_compose_up,
-            
-            # Home Assistant tools
             "ha_get_state": ha_get_state,
             "ha_call_service": ha_call_service,
             "ha_get_logs": ha_get_logs,
             "ha_search_logs": ha_search_logs,
             "ha_list_integrations": ha_list_integrations,
             "ha_get_config": ha_get_config,
-            
-            # Web search
             "web_search": web_search,
         }
+        
+        # Merge (registry tools take precedence)
+        tools.update(hardcoded_tools)
+        
+        return tools
     
     def _create_prompt(self, task: str, context: Optional[Dict] = None) -> ChatPromptTemplate:
         """Create prompt with system instructions and available tools."""
@@ -98,6 +157,61 @@ Task: {task}
             SystemMessage(content=prompt_content),
             MessagesPlaceholder(variable_name="messages")
         ])
+    
+    def _prune_messages(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """Prune messages to stay within context limits."""
+        return self.context_manager.prune_context(messages)
+    
+    async def _invoke_llm_async(self, messages: List[BaseMessage]) -> str:
+        """Invoke LLM asynchronously with cost tracking.
+        
+        Args:
+            messages: List of messages to send
+            
+        Returns:
+            Response content as string
+        """
+        # Check cost limits before calling
+        limit_check = self.cost_tracker.check_limits()
+        if not limit_check["allowed"]:
+            raise Exception(f"Cost limit exceeded: {limit_check['reason']}")
+        
+        # Prune context if needed
+        pruned_messages = self._prune_messages(messages)
+        
+        # Estimate input tokens
+        input_text = " ".join(
+            msg.content if hasattr(msg, 'content') else str(msg)
+            for msg in pruned_messages
+        )
+        input_tokens = self.llm_provider.estimate_tokens(input_text)
+        
+        # Invoke LLM
+        try:
+            response = await asyncio.wait_for(
+                self.llm_provider.ainvoke(pruned_messages),
+                timeout=60.0  # 60 second timeout
+            )
+        except asyncio.TimeoutError:
+            raise Exception("LLM call timed out after 60 seconds")
+        
+        # Estimate output tokens
+        output_tokens = self.llm_provider.estimate_tokens(response)
+        
+        # Record usage
+        self.cost_tracker.record_usage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            operation=f"{self.agent_name}_llm_call"
+        )
+        
+        # Check limits again after call
+        limit_check = self.cost_tracker.check_limits()
+        if limit_check.get("warnings"):
+            for warning in limit_check["warnings"]:
+                print(f"  ⚠️  {warning}")
+        
+        return response
     
     def _describe_tools(self) -> str:
         """Describe available tools to the LLM."""
@@ -173,7 +287,39 @@ Task: {task}
         pass
     
     def _execute_tool(self, tool_name: str, *args, **kwargs) -> Dict[str, Any]:
-        """Execute a tool and return result."""
+        """Execute a tool and return sanitized result."""
+        # Check emergency stop before execution
+        self.emergency_stop.check_and_raise()
+        
+        # Check governance before execution
+        from governance import get_governance
+        governance = get_governance()
+        context = kwargs.get("context", {}) or {}
+        context.setdefault("environment", getattr(self, "environment", "production"))
+        
+        permission = governance.check_permission(tool_name, context)
+        
+        if not permission["allowed"]:
+            # Tool requires approval
+            if permission.get("requires_approval"):
+                approval_id = governance.request_approval(
+                    tool_name,
+                    {"args": args, "kwargs": kwargs},
+                    context
+                )
+                return {
+                    "status": "pending_approval",
+                    "approval_id": approval_id,
+                    "message": permission.get("approval_message", f"Tool '{tool_name}' requires approval"),
+                    "risk_level": permission.get("risk_level", "red")
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": permission.get("message", f"Tool '{tool_name}' not allowed"),
+                    "risk_level": permission.get("risk_level", "red")
+                }
+        
         if tool_name not in self.tools:
             return {
                 "status": "error",
@@ -183,7 +329,32 @@ Task: {task}
         try:
             tool = self.tools[tool_name]
             result = tool(*args, **kwargs)
-            return result
+            
+            # Sanitize result before returning
+            if isinstance(result, dict):
+                # Check for secrets before sanitizing
+                result_str = json.dumps(result, default=str)
+                if self.sanitizer.has_secrets(result_str):
+                    # Log warning but don't block execution
+                    print(f"  ⚠️  WARNING: Potential secrets detected in {tool_name} output - sanitizing")
+                
+                # Sanitize the result
+                sanitized_result = self.sanitizer.sanitize_dict(result, context=tool_name)
+                return sanitized_result
+            elif isinstance(result, str):
+                # Sanitize string result
+                sanitization = self.sanitizer.sanitize(result, context=tool_name)
+                if sanitization.redactions:
+                    print(f"  ⚠️  Sanitized {tool_name} output: {', '.join(sanitization.redactions)}")
+                return sanitization.sanitized_content
+            else:
+                # For other types, convert to string and sanitize
+                result_str = str(result)
+                sanitization = self.sanitizer.sanitize(result_str, context=tool_name)
+                return sanitization.sanitized_content
+                
+        except EmergencyStopException:
+            raise  # Re-raise emergency stop
         except Exception as e:
             return {
                 "status": "error",

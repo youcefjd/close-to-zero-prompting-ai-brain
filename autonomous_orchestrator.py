@@ -5,6 +5,7 @@ from autonomous_router import AutonomousRouter
 from sub_agents.docker_agent import DockerAgent
 from sub_agents.config_agent import ConfigAgent
 from fact_checker import FactChecker
+from emergency_stop import get_emergency_stop, EmergencyStopException
 import json
 
 
@@ -14,6 +15,7 @@ class AutonomousOrchestrator:
     def __init__(self):
         self.router = AutonomousRouter()
         self.fact_checker = FactChecker()
+        self.emergency_stop = get_emergency_stop()
         
         # Initialize sub-agents
         from sub_agents.consulting_agent import ConsultingAgent
@@ -32,6 +34,9 @@ class AutonomousOrchestrator:
     
     def execute(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Execute a task fully autonomously."""
+        # Check emergency stop before starting
+        self.emergency_stop.check_and_raise()
+        
         print(f"\n{'='*70}")
         print(f"🧠 AUTONOMOUS EXECUTION: {task}")
         print(f"{'='*70}\n")
@@ -53,13 +58,20 @@ class AutonomousOrchestrator:
                 "reason": "Task requires clarification"
             }
         
+        # Check if this is a design task (complex system building)
+        primary_agent_name = routing.get("primary_agent", "general")
+        if primary_agent_name == "design":
+            # Use autonomous builder for design tasks
+            from autonomous_builder import AutonomousBuilder
+            builder = AutonomousBuilder(environment=context.get("environment", "production") if context else "production")
+            return builder.build_system(task)
+        
         # Check if this is a consultation task (no execution needed)
         task_type = routing.get("analysis", {}).get("task_type") or routing.get("task_type", "execution")
         if task_type == "consultation":
             print("\n💡 This is a consultation/analysis task - providing analysis without execution\n")
         
         # Step 3: Execute with primary agent
-        primary_agent_name = routing.get("primary_agent", "general")
         
         if primary_agent_name not in self.agents:
             # Fallback to general agent or create on-the-fly
@@ -68,7 +80,7 @@ class AutonomousOrchestrator:
         
         agent = self.agents[primary_agent_name]
         
-        # Step 4: Pre-execution fact check
+        # Step 5: Pre-execution fact check
         fact_check = self.fact_checker.pre_execution_check(task, routing.get("analysis", {}))
         if fact_check.get("should_abort"):
             return {
@@ -77,11 +89,40 @@ class AutonomousOrchestrator:
                 "suggestion": fact_check.get("suggestion")
             }
         
-        # Step 5: Execute
-        print(f"🚀 Executing with {agent.agent_name}...\n")
-        result = agent.execute(task, context)
+        # Step 6: Execute
+        # Check emergency stop before execution
+        self.emergency_stop.check_and_raise()
         
-        # Step 6: Post-execution validation
+        print(f"🚀 Executing with {agent.agent_name}...\n")
+        try:
+            # Try async execution first, fall back to sync
+            if hasattr(agent, 'execute_async'):
+                import asyncio
+                try:
+                    result = asyncio.run(agent.execute_async(task, context))
+                except RuntimeError:
+                    # Event loop already running, use sync
+                    result = agent.execute(task, context)
+            else:
+                result = agent.execute(task, context)
+        except EmergencyStopException as e:
+            return {
+                "status": "stopped",
+                "reason": str(e),
+                "message": "Execution halted by emergency stop"
+            }
+        except Exception as e:
+            # Check if it's a cost limit error
+            if "Cost limit exceeded" in str(e) or "cost limit" in str(e).lower():
+                return {
+                    "status": "error",
+                    "reason": "cost_limit_exceeded",
+                    "message": str(e),
+                    "cost_summary": getattr(agent, 'cost_tracker', {}).get_summary() if hasattr(agent, 'cost_tracker') else {}
+                }
+            raise
+        
+        # Step 7: Post-execution validation
         if result.get("status") == "success":
             validation = self.fact_checker.post_execution_validation(task, result)
             if not validation.get("is_valid"):
@@ -89,8 +130,24 @@ class AutonomousOrchestrator:
             
             # Store solution in memory
             self.fact_checker.store_solution(task, result)
+            
+            # Record routing success for learning
+            if hasattr(self.router, 'semantic_router') and self.router.semantic_router:
+                self.router.semantic_router.record_success(
+                    task=task,
+                    agent_used=primary_agent_name,
+                    success=True
+                )
+        elif result.get("status") == "error":
+            # Record routing failure for learning
+            if hasattr(self.router, 'semantic_router') and self.router.semantic_router:
+                self.router.semantic_router.record_success(
+                    task=task,
+                    agent_used=primary_agent_name,
+                    success=False
+                )
         
-        # Step 7: Handle secondary agents if needed
+        # Step 8: Handle secondary agents if needed
         secondary_agents = routing.get("secondary_agents", [])
         if secondary_agents and result.get("status") == "success":
             for sec_agent_name in secondary_agents:

@@ -1,459 +1,447 @@
 # Close-to-Zero Prompting AI Brain
 
+**An autonomous, self-evolving AI agent system that builds complete systems from scratch with minimal human intervention.**
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## Overview
 
-The **Close-to-Zero Prompting AI Brain** is an autonomous, self-evolving agent system that minimizes human intervention through intelligent routing, governance, and self-extension capabilities. The system operates with minimal prompts, making autonomous decisions and only consulting humans for critical operations, authentication, and major architectural decisions.
+The **Close-to-Zero Prompting AI Brain** is an autonomous agent system that minimizes human intervention through intelligent routing, self-evolution, and governance. Give it a single high-level request like "Build a Raspberry Pi ad-blocker" and it will autonomously plan, generate tools, configure authentication, and execute—only asking for approval at critical decision points.
 
 ## Core Philosophy
 
 > **"The agent should figure it out itself"**
 
 The system is designed to:
-- **Autonomously route** tasks to specialized agents
+- **Autonomously build** complete systems from scratch
 - **Self-evolve** by generating new tools when needed
-- **Govern itself** using a Traffic Light Protocol
+- **Govern itself** using a Traffic Light Protocol (Green/Yellow/Red)
 - **Learn from memory** to avoid repeating mistakes
-- **Only ask humans** when truly necessary (authentication, approvals, clarifications)
+- **Only ask humans** for authentication, critical approvals, and architectural decisions
+
+## Table of Contents
+
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Getting Started](#getting-started)
+- [Complete Functionality Reference](#complete-functionality-reference)
+- [Usage Examples](#usage-examples)
+- [Configuration](#configuration)
+- [Best Practices](#best-practices)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Key Features
+
+### 🏗️ **Autonomous System Building**
+Build complete systems from a single prompt:
+- Design consultation with Q&A workflow
+- Multiple architecture options with pros/cons
+- Resource quota planning
+- Automatic observability generation
+- Complete deployment with governance
+
+### 🧠 **Intelligent LLM Provider Selection**
+Choose your AI backend at startup:
+- **Ollama (Local)** - FREE, private, default
+- **OpenAI** - Commercial, GPT-4
+- **Anthropic Claude** - Commercial, Claude-3
+
+### 🔄 **Self-Evolution**
+Automatically generates new capabilities:
+- Detects missing tools using LLM analysis
+- Generates MCP (Model Context Protocol) servers
+- Hot-reloads new tools without restart
+- Batch tool generation for complex systems
+
+### 🛡️ **Governance Framework**
+Traffic Light Protocol ensures safety:
+- 🟢 **Green**: Read-only operations (auto-execute)
+- 🟡 **Yellow**: Reversible changes (auto-approve in dev)
+- 🔴 **Red**: Critical operations (always require approval)
+
+### 🔐 **Smart Authentication**
+Three authentication patterns:
+- **Host Inheritance**: AWS, Kubernetes (uses CLI credentials)
+- **Secret Vault**: API keys in `.env` file
+- **OAuth 2.0**: Gmail, Calendar (OAuth tokens)
+
+### 📚 **Learning & Memory**
+Improves over time:
+- Stores past successes/failures
+- Suggests fixes based on history
+- Prevents infinite loops
+- Pattern recognition for similar tasks
+
+### 🔍 **Observability Generation**
+Automatically creates monitoring:
+- Log aggregation tools
+- Error tracking systems
+- Health check monitors
+- Custom troubleshooting tools
+
+### 🌐 **Web Search Integration**
+Access current information:
+- Tavily AI or Serper.dev integration
+- Knowledge cutoff awareness
+- Privacy filters for sensitive queries
+
+---
 
 ## Architecture
 
 ### Three-Layer Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│ Layer 1: Foundation (Fixed Tools)      │
-│ - Pre-built MCP servers                 │
-│ - Core tools (write_file, run_shell)    │
-│ - Stable infrastructure                 │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ Layer 2: Orchestration (Smart Routing)  │
-│ - AutonomousRouter                       │
-│ - GovernanceFramework                    │
-│ - Plan & Apply Pattern                   │
-│ - FactChecker & Memory                   │
-│ - AuthBroker                             │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ Layer 3: Evolution (Self-Extension)    │
-│ - MetaAgent                              │
-│ - ToolsmithAgent                         │
-│ - Tool Discovery & Hot-Reload            │
-│ - Web Search Integration                 │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 1: Foundation (Fixed Tools)                          │
+│ ─────────────────────────────────────────────────────────  │
+│ • Pre-built MCP servers (Docker, Home Assistant, Web)      │
+│ • Core tools (write_file, run_shell)                       │
+│ • Stable infrastructure components                         │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 2: Orchestration (Smart Routing & Governance)        │
+│ ─────────────────────────────────────────────────────────  │
+│ • AutonomousRouter - Task classification & routing         │
+│ • GovernanceFramework - Traffic Light Protocol            │
+│ • FactChecker - Validation & memory                        │
+│ • AuthBroker - Identity management                         │
+│ • Plan & Apply Pattern (Terraform-like)                    │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 3: Evolution (Self-Extension & Building)             │
+│ ─────────────────────────────────────────────────────────  │
+│ • MetaAgent - Main orchestrator                            │
+│ • AutonomousBuilder - Complete system building             │
+│ • ToolsmithAgent - MCP server generation                   │
+│ • DesignConsultant - Architecture design with Q&A          │
+│ • ObservabilityGenerator - Monitoring tool creation        │
+│ • Tool Discovery & Hot-Reload                              │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-## Key Components
-
-### 1. MetaAgent (`meta_agent.py`)
-
-The main orchestrator that processes requests with self-evolution capability.
-
-**Features**:
-- Request classification (The "Sorting Hat")
-- Tool discovery and missing tool detection
-- Self-evolution trigger (Toolsmith)
-- Authentication checks
-- Hot-reload of new capabilities
-
-**Flow**:
-```
-Request → Classification → Tool Discovery → Self-Evolution → Authentication → Deployment → Execution
-```
-
-### 2. AutonomousRouter (`autonomous_router.py`)
-
-Intelligently routes tasks to specialized sub-agents.
-
-**Capabilities**:
-- Analyzes task intent and complexity
-- Determines primary/secondary agents
-- Identifies if human clarification is needed
-- Routes to appropriate specialized agent
-
-**Agent Types**:
-- **ConsultingAgent**: Analysis and recommendations
-- **DockerAgent**: Container operations
-- **ConfigAgent**: Configuration management
-- **GeneralAgent**: General tasks
-
-### 3. GovernanceFramework (`governance.py`)
-
-Traffic Light Protocol for safe autonomous operations.
-
-**Risk Levels**:
-- 🟢 **Green**: Read-only, safe (auto-execute)
-- 🟡 **Yellow**: Drafts, reversible (approval in production)
-- 🔴 **Red**: Destructive, critical (always requires approval)
-
-**Pattern**: Plan & Apply (like Terraform)
-1. **Plan**: Generate change plan
-2. **Review**: Human reviews plan
-3. **Apply**: Execute after approval
-
-### 4. AuthBroker (`auth_broker.py`)
-
-Identity management with three authentication patterns.
-
-**Patterns**:
-1. **Host Inheritance**: AWS, Kubernetes (CLI credentials)
-2. **Secret Vault**: API keys (.env file)
-3. **OAuth 2.0**: Gmail, Calendar (OAuth tokens)
-
-**Golden Rule**: Context is Public, Environment is Private
-- Never asks for raw credentials in chat
-- Prompts user to provision identity on host machine
-
-### 5. ToolsmithAgent
-
-Generates new MCP servers when tools are missing.
-
-**Process**:
-1. Detects missing tool
-2. Generates MCP server code (🟡 Yellow)
-3. Validates syntax
-4. Requests approval (🔴 Red)
-5. Hot-reloads tool registry
-
-**MVP Approach**: Process reload (not Docker containers)
-- 90% of value with 10% of code
-- Can upgrade to Docker later if needed
-
-### 6. FactChecker (`fact_checker.py`)
-
-Validation, error learning, and loop prevention.
-
-**Features**:
-- Pre-execution validation
-- Post-execution verification
-- Memory of past successes/failures
-- Suggests fixes based on history
-- Prevents infinite loops
-
-### 7. Web Search (`mcp_servers/web_search_tools.py`)
-
-🟢 Green tool for accessing current information.
-
-**Features**:
-- Tavily AI integration (preferred)
-- Serper.dev fallback
-- Privacy filter (blocks sensitive queries)
-- Knowledge cutoff awareness (March 2024)
-
-## How It Works
 
 ### Request Processing Flow
 
 ```
-┌─────────────────────────────────────────┐
-│ 1. REQUEST ENTRY                        │
-│    User: "check s3 logs for errors"     │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 2. CLASSIFICATION                       │
-│    Intent: ANALYSIS → 🟢 Green          │
-│    Risk: Read-only                      │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 3. TOOL DISCOVERY                       │
-│    Available: [docker, ha, ...]         │
-│    Missing: s3_tools                    │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 4. SELF-EVOLUTION                       │
-│    Toolsmith generates: s3_tools.py    │
-│    Status: Pending approval (🟡 Yellow) │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 5. AUTHENTICATION CHECK                 │
-│    Auth required: aws                   │
-│    Pattern: Host Inheritance            │
-│    Prompt: "Run 'aws configure', then   │
-│            'Ready'"                      │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 6. USER ACTION                          │
-│    User: Runs 'aws configure'           │
-│    User: Types "Ready"                  │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 7. DEPLOYMENT                           │
-│    Validate code syntax                 │
-│    Hot-reload tool registry              │
-│    Status: Pending approval (🔴 Red)    │
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 8. USER APPROVAL                        │
-│    User: python approve.py approve <id>│
-└─────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────┐
-│ 9. EXECUTION                            │
-│    Tool deployed and available          │
-│    Re-runs original request             │
-│    Uses: s3_tools.query_logs()         │
-└─────────────────────────────────────────┘
-                    ↓
-              ✅ COMPLETE
+User Request → LLM Provider Selection → Classification →
+Tool Discovery → Self-Evolution → Authentication →
+Deployment → Execution → Memory Storage
 ```
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 
 - **Python 3.11+** installed
-- **Ollama** installed and running (for local LLM)
+- **Ollama** installed and running (for local LLM - recommended)
+  - Or OpenAI/Anthropic API keys (for commercial LLMs)
 - **Git** for cloning the repository
 - **Terminal/Command Line** access
 
-### Step 1: Clone the Repository
+### Quick Start
+
+#### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/youcefjd/close-to-zero-prompting-ai-brain.git
 cd close-to-zero-prompting-ai-brain
 ```
 
-### Step 2: Set Up Python Environment
+#### 2. Set Up Python Environment
 
 ```bash
 # Create virtual environment
 python3 -m venv venv
 
 # Activate virtual environment
-# On macOS/Linux:
-source venv/bin/activate
-# On Windows:
-# venv\Scripts\activate
+source venv/bin/activate  # macOS/Linux
+# venv\Scripts\activate   # Windows
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### Step 3: Install and Start Ollama
+#### 3. Install and Configure Ollama (Recommended - Free & Local)
 
 ```bash
-# Install Ollama (if not already installed)
+# Install Ollama
 # macOS/Linux: https://ollama.ai/download
-# Or use: curl -fsSL https://ollama.ai/install.sh | sh
+curl -fsSL https://ollama.ai/install.sh | sh
 
 # Start Ollama server
 ollama serve
 
 # In a separate terminal, pull the model
-ollama pull llama3.1:latest
+ollama pull gemma3:4b
 ```
 
-**Note**: Keep the `ollama serve` process running in a separate terminal.
+**Keep the `ollama serve` process running in a separate terminal.**
 
-### Step 4: Configure Environment Variables (Optional)
+#### 4. Configure Environment Variables (Optional)
 
 Create a `.env` file in the project root:
 
 ```bash
+# LLM Provider (optional - will be prompted if not set)
+AI_BRAIN_LLM_PROVIDER=ollama  # or openai, anthropic
+AI_BRAIN_LLM_MODEL=gemma3:4b
+
+# Environment
+AI_BRAIN_ENVIRONMENT=production  # or dev, staging
+
 # Web Search (choose one)
 TAVILY_API_KEY=your-tavily-api-key-here
 # OR
 SERPER_API_KEY=your-serper-api-key-here
 
+# OpenAI (if using OpenAI provider)
+OPENAI_API_KEY=sk-...
+
+# Anthropic (if using Anthropic provider)
+ANTHROPIC_API_KEY=sk-ant-...
+
 # Home Assistant (if using HA integration)
 HA_TOKEN=your-home-assistant-token
-
-# Other API keys as needed
-COOKIDOO_API_KEY=your-cookidoo-key
 ```
 
 **Get API Keys**:
 - **Tavily AI**: https://tavily.com (recommended for web search)
 - **Serper.dev**: https://serper.dev (alternative for web search)
+- **OpenAI**: https://platform.openai.com/api-keys
+- **Anthropic**: https://console.anthropic.com/
 
-**Note**: The `.env` file is gitignored for security. Never commit secrets.
-
-### Step 5: Configure Authentication (As Needed)
-
-#### AWS (Host Inheritance Pattern)
+#### 5. Run Your First Request
 
 ```bash
-# Configure AWS credentials
-aws configure
-
-# Or use SSO
-aws sso login
-
-# Verify it works
-aws sts get-caller-identity
-```
-
-#### Kubernetes (Host Inheritance Pattern)
-
-```bash
-# Configure kubectl (example for EKS)
-aws eks update-kubeconfig --name your-cluster-name --region us-east-1
-
-# Verify it works
-kubectl cluster-info
-```
-
-#### API Keys (Secret Vault Pattern)
-
-```bash
-# Use the secure script
-./scripts/add_secret.sh COOKIDOO_API_KEY
-
-# Or manually add to .env
-echo "COOKIDOO_API_KEY=your-key" >> .env
-```
-
-### Step 6: Test the Brain
-
-```bash
-# Simple test (consultation - no execution)
 python meta_agent.py "what is the latest version of Kubernetes?"
-
-# The brain will:
-# 1. Classify the request
-# 2. Use web_search tool (if configured)
-# 3. Return current information
 ```
 
-### Step 7: First Real Task
+**What Happens:**
+1. You'll be prompted to select an LLM provider (or it uses Ollama by default)
+2. The agent classifies your request
+3. Uses web search to get current information
+4. Returns the result
 
-Try a task that requires self-evolution:
+### LLM Provider Selection
 
+When you run the system for the first time, you'll see:
+
+```
+======================================================================
+🧠 CLOSE-TO-ZERO PROMPTING AI BRAIN
+======================================================================
+
+🧠 AI BRAIN - LLM PROVIDER SELECTION
+======================================================================
+
+   This system can use different LLM providers. Choose one:
+
+   1. Ollama (Local) - RECOMMENDED ✅
+      • Runs locally on your machine (private, free)
+      • Model: gemma3:4b
+      • Requires: Ollama installed (https://ollama.ai)
+      • Cost: Free
+      • Privacy: Complete (data never leaves your machine)
+
+   2. OpenAI (Commercial)
+      • Uses OpenAI's GPT models
+      • Model: gpt-4 (configurable)
+      • Requires: OpenAI API key
+      • Cost: ~$0.03 per 1K tokens (input)
+
+   3. Anthropic Claude (Commercial)
+      • Uses Anthropic's Claude models
+      • Model: claude-3-sonnet (configurable)
+      • Requires: Anthropic API key
+      • Cost: ~$0.003 per 1K tokens (input)
+
+   Enter your choice (1-3) [default: 1 - Ollama]:
+```
+
+**Just press Enter to use Ollama (local, free).**
+
+To skip the prompt and use defaults:
 ```bash
-python meta_agent.py "check s3 logs for errors"
+export AI_BRAIN_LLM_PROVIDER=ollama
+python meta_agent.py "your task"
 ```
 
-**What to Expect**:
-1. Brain detects missing S3 tool
-2. Generates MCP server code (🟡 Yellow - asks permission)
-3. Checks AWS authentication (prompts if needed)
-4. Requests deployment approval (🔴 Red - always required)
-5. Executes diagnosis after approval
+---
 
-**Approve Requests**:
+## Complete Functionality Reference
+
+### 1. **MetaAgent** (`meta_agent.py`)
+
+**Main orchestrator with self-evolution capability.**
+
+**Features**:
+- Request classification (The "Sorting Hat")
+- Tool discovery and missing tool detection
+- Self-evolution trigger (activates Toolsmith)
+- Authentication checks via AuthBroker
+- Hot-reload of new capabilities
+- Tool registry management
+
+**Usage**:
 ```bash
-# List pending approvals
-python approve.py list
-
-# Approve a request
-python approve.py approve <approval_id>
+python meta_agent.py "your request"
 ```
 
-### Step 8: Verify Installation
+**Flow**:
+```
+Request → Classification → Tool Discovery → Self-Evolution →
+Authentication → Deployment → Execution
+```
 
-Check that everything is working:
+---
 
+### 2. **AutonomousBuilder** (`autonomous_builder.py`)
+
+**Complete system building from scratch.**
+
+**Features**:
+- Context gathering through Q&A
+- Architecture design options with pros/cons
+- Resource quota planning
+- Authentication verification
+- Automatic observability generation
+- Troubleshooting tool creation
+- Complete deployment orchestration
+
+**Usage**:
 ```bash
-# Check Python version
-python --version  # Should be 3.11+
-
-# Check Ollama is running
-curl http://localhost:11434/api/tags  # Should return model list
-
-# Check dependencies
-pip list | grep -E "langchain|langgraph|ollama"
-
-# Check available tools
-python -c "from meta_agent import MetaAgent; print(MetaAgent()._discover_tools())"
+python autonomous_builder.py "Build a Raspberry Pi server to block ads on my network"
 ```
 
-### Troubleshooting Setup
+**Workflow**:
+1. **Context Gathering**: Asks targeted questions (network size, availability, budget)
+2. **Design Options**: Presents 2-4 architecture options with pros/cons
+3. **User Selection**: You choose your preferred option
+4. **Resource Quotas**: Gathers sizing information (CPU, memory, storage)
+5. **Architecture Design**: Generates detailed architecture
+6. **Authentication**: Checks and prompts for required credentials
+7. **Observability**: Auto-generates monitoring tools
+8. **Troubleshooting Tools**: Creates debugging MCP servers
+9. **System Building**: Executes deployment with governance checks
 
-#### Ollama Not Running
-```bash
-# Start Ollama
-ollama serve
-
-# Check if it's running
-curl http://localhost:11434/api/tags
+**Example Output**:
+```
+Step 1: Context Gathering (3-5 questions)
+Step 2: Design Options (Pi-hole, AdGuard, Custom)
+Step 3: Resource Quotas (cluster size, CPU, memory)
+Step 4: Architecture Design (components, deployment strategy)
+Step 5: Authentication (SSH, API keys)
+Step 6: Observability (4 monitoring tools generated)
+Step 7: Troubleshooting Tools (log_aggregator, error_tracker)
+Step 8: System Building (with governance approvals)
 ```
 
-#### Model Not Found
-```bash
-# Pull the model
-ollama pull llama3.1:latest
+---
 
-# List available models
-ollama list
+### 3. **DesignConsultant** (`design_consultant.py`)
+
+**Structured Q&A for complex system design.**
+
+**Features**:
+- Analyzes requirements to determine needed context
+- Generates targeted questions
+- Presents design options with pros/cons
+- Recommendation scoring (0-1)
+- Cost and complexity estimates
+- Resource quota gathering
+
+**Methods**:
+- `gather_context()`: Asks targeted questions
+- `generate_design_options()`: Creates architecture options
+- `present_options()`: Shows options and gets user selection
+- `gather_resource_quotas()`: Collects sizing information
+
+**Example Questions**:
+```
+1. What is the expected scale (users, requests/sec)?
+2. What is your availability requirement? (99.9%, 99.99%, 99.999%)
+3. What is your budget range?
+4. What are your security requirements?
+5. Do you have existing infrastructure?
 ```
 
-#### Import Errors
-```bash
-# Reinstall dependencies
-pip install -r requirements.txt --upgrade
+---
 
-# Check virtual environment is activated
-which python  # Should show venv path
+### 4. **AutonomousRouter** (`autonomous_router.py`)
+
+**Intelligent task routing to specialized agents.**
+
+**Features**:
+- LLM-powered intent analysis
+- Complexity assessment
+- Primary/secondary agent determination
+- Human clarification detection
+- Semantic routing support
+
+**Agent Types**:
+- **ConsultingAgent**: Analysis, recommendations, comparisons
+- **DockerAgent**: Container operations, Docker Compose
+- **ConfigAgent**: Configuration file management
+- **DesignConsultant**: Complex system design with Q&A
+- **GeneralAgent**: Fallback for uncategorized tasks
+
+**Routing Logic**:
+```python
+Intent Detection → Complexity Analysis → Agent Selection →
+Clarification Check → Route to Agent
 ```
 
-#### Permission Errors
-```bash
-# Make scripts executable
-chmod +x scripts/add_secret.sh
-
-# Check file permissions
-ls -la scripts/
+**Example Routing**:
+```
+"Help me decide between EMR and EKS" → ConsultingAgent
+"Check Docker logs for errors" → DockerAgent
+"Build a microservices system" → DesignConsultant
+"Create YAML config for app" → ConfigAgent
 ```
 
-### Quick Start Checklist
+---
 
-- [ ] Repository cloned
-- [ ] Python 3.11+ installed
-- [ ] Virtual environment created and activated
-- [ ] Dependencies installed (`pip install -r requirements.txt`)
-- [ ] Ollama installed and running
-- [ ] Model pulled (`ollama pull llama3.1:latest`)
-- [ ] Environment variables configured (`.env` file)
-- [ ] Authentication configured (AWS, K8s, etc. as needed)
-- [ ] Test query successful
-- [ ] Approval system working (`approve.py`)
+### 5. **GovernanceFramework** (`governance.py`)
 
-### Next Steps
+**Traffic Light Protocol for safe autonomous operations.**
 
-Once setup is complete:
-1. Read the [Usage Example](USAGE_EXAMPLE.md) for detailed workflows
-2. Check [Architecture Deep Dive](ARCHITECTURE_DEEP_DIVE.md) for technical details
-3. Review [EKS Pod Crash Example](EKS_POD_CRASH_EXAMPLE.md) for risk level examples
-4. Start using the brain for your tasks!
+**Risk Levels**:
 
-## Usage
+**🟢 Green (Auto-Execute)**:
+- Read-only operations
+- Status checks, logs, queries
+- No state changes
+- Examples: `docker_ps`, `docker_logs`, `ha_get_state`, `web_search`
 
-### Basic Usage
+**🟡 Yellow (Context-Aware)**:
+- Reversible operations
+- File creation, configuration changes
+- Auto-approved in dev/staging
+- Requires approval in production
+- Examples: `write_file`, `docker_exec`, `ha_call_service`
 
-```bash
-# Run the meta-agent with a request
-python meta_agent.py "check s3 logs for errors"
+**🔴 Red (Always Approve)**:
+- Destructive operations
+- Service deployment, container restart
+- Network changes, system packages
+- Never auto-approved
+- Examples: `docker_restart`, `run_shell`, `deploy_mcp_server`
 
-# The agent will:
-# 1. Classify the request
-# 2. Detect missing tools
-# 3. Generate code (if needed)
-# 4. Check authentication
-# 5. Request approvals
-# 6. Execute autonomously
+**Plan & Apply Pattern**:
+```
+1. Plan: Generate change plan with risk assessment
+2. Review: Human reviews plan (for yellow/red tasks)
+3. Apply: Execute after approval
 ```
 
-### Consultation Request
-
-```bash
-python meta_agent.py "help me decide between emr ack on eks vs custom emr wrapper"
-
-# Routes to ConsultingAgent
-# Provides analysis without execution
-# No approvals needed (🟢 Green)
-```
-
-### Approval Workflow
-
+**Usage**:
 ```bash
 # List pending approvals
 python approve.py list
@@ -463,326 +451,762 @@ python approve.py approve <approval_id>
 
 # Reject a request
 python approve.py reject <approval_id> "reason"
+
+# Show approval details
+python approve.py show <approval_id>
 ```
 
-### Authentication Setup
+---
 
-#### AWS (Host Inheritance)
+### 6. **AuthBroker** (`auth_broker.py`)
+
+**Identity management with three authentication patterns.**
+
+**Golden Rule**: Context is Public, Environment is Private
+- Never asks for raw credentials in chat
+- Prompts user to provision identity on host machine
+
+**Authentication Patterns**:
+
+**1. Host Inheritance** (AWS, Kubernetes):
 ```bash
-# Configure AWS credentials
+# AWS
 aws configure
-
-# Or use SSO
 aws sso login
 
-# Tell agent when ready
-# (Agent will detect credentials automatically)
+# Kubernetes
+aws eks update-kubeconfig --name cluster --region us-east-1
+kubectl cluster-info
+
+# Agent detects credentials automatically
 ```
 
-#### API Keys (Secret Vault)
+**2. Secret Vault** (API Keys):
 ```bash
-# Add secret securely
-./scripts/add_secret.sh COOKIDOO_API_KEY
+# Add to .env file
+echo "TAVILY_API_KEY=your-key" >> .env
+echo "SERPER_API_KEY=your-key" >> .env
 
-# Or add to .env manually
-echo "COOKIDOO_API_KEY=your-key" >> .env
+# Agent reads from .env securely
 ```
 
-#### OAuth (Gmail, Calendar)
+**3. OAuth 2.0** (Gmail, Calendar):
+```
+# Agent provides authorization link
+# User clicks link → Approves → Tells agent "Ready"
+# Tokens stored in .secrets/ directory
+```
+
+**Verification**:
+```python
+# Agent checks before execution
+auth_broker.require_auth("aws")  # Checks ~/.aws/credentials
+auth_broker.require_auth("kubernetes")  # Checks ~/.kube/config
+```
+
+---
+
+### 7. **ToolsmithAgent** (in `meta_agent.py`)
+
+**Generates new MCP servers when tools are missing.**
+
+**Process**:
+1. Detects missing tool using LLM analysis
+2. Generates MCP server code (🟡 Yellow risk)
+3. Validates Python syntax
+4. Requests code generation approval
+5. Requests deployment approval (🔴 Red risk)
+6. Hot-reloads tool registry
+7. Verifies tool availability
+
+**MVP Approach**: Process reload (not Docker containers)
+- 90% of value with 10% of code
+- Instant hot-reload without container overhead
+- Can upgrade to Docker containers later
+
+**Example**:
+```
+Request: "Check S3 logs"
+Detects: s3_tools missing
+Generates: mcp_servers/s3_tools.py
+Approvals: 2 (code generation + deployment)
+Result: s3_tools available for use
+```
+
+---
+
+### 8. **FactChecker** (`fact_checker.py`)
+
+**Validation, error learning, and loop prevention.**
+
+**Features**:
+- **Pre-execution validation**: Checks file existence, permissions, dangerous commands
+- **Post-execution verification**: Validates results
+- **Memory**: Stores past successes/failures in `.agent_memory.json`
+- **Fix suggestions**: Based on error history
+- **Loop prevention**: Max 5 iterations, detects repeated errors
+- **Pattern recognition**: Identifies similar failure patterns
+
+**Validation Examples**:
+```python
+# Before deleting a file
+fact_checker.validate_action("delete_file", {"path": "/path/to/file"})
+# Checks: File exists? Not a system file? User has permission?
+
+# After execution
+fact_checker.verify_result(result)
+# Checks: Expected output? No errors? State consistent?
+```
+
+**Loop Detection**:
+```
+Same error 3 times in a row → Abort
+Max 5 iterations per task → Abort
+Suggests alternative approaches from memory
+```
+
+---
+
+### 9. **ObservabilityGenerator** (`observability_generator.py`)
+
+**Automatic monitoring and observability tool creation.**
+
+**Features**:
+- Log location discovery (auto-detects log paths)
+- Monitoring stack generation
+- Error tracking tools
+- Health check monitors
+- Custom troubleshooting MCP servers
+
+**Generated Tools**:
+- `log_aggregator`: Centralized log access
+- `error_tracker`: Error analysis and tracking
+- `health_monitor`: Service health checks
+- System-specific tools (e.g., `k8s_troubleshooter`, `docker_troubleshooter`)
+
+**Usage**:
+```python
+observability_gen.generate_observability_stack(requirements)
+# Returns: List of generated monitoring tools
+```
+
+**Example Output**:
+```
+Generated 4 observability tools:
+✅ log_aggregator - Aggregate logs from all components
+✅ error_tracker - Track and analyze errors
+✅ k8s_troubleshooter - Kubernetes debugging
+✅ health_monitor - Service health checks
+```
+
+---
+
+### 10. **Configuration System** (`config.py`)
+
+**Centralized configuration and LLM provider management.**
+
+**Features**:
+- Interactive LLM provider selection
+- Environment variable support
+- Default configurations
+- Provider-specific settings
+
+**Environment Variables**:
 ```bash
-# Agent will provide authorization link
-# Click link → Approve → Tell agent "Ready"
+AI_BRAIN_LLM_PROVIDER=ollama  # ollama, openai, anthropic
+AI_BRAIN_LLM_MODEL=gemma3:4b
+AI_BRAIN_LLM_TEMPERATURE=0.7
+AI_BRAIN_ENVIRONMENT=production  # production, dev, staging
+AI_BRAIN_MAX_RETRIES=5
+AI_BRAIN_TIMEOUT=30
+
+# Provider-specific
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-## Example Walkthrough
+**Usage**:
+```python
+from config import get_llm_provider_from_user, get_config
 
-### Scenario: "Check S3 logs for errors"
+# Interactive prompt (or uses env vars)
+llm_provider = get_llm_provider_from_user()
 
-#### Step 1: Request Entry
+# Get configuration
+config = get_config()
+```
+
+---
+
+### 11. **Specialized Sub-Agents**
+
+#### **ConsultingAgent** (`sub_agents/consulting_agent.py`)
+- Analysis and recommendations
+- Technology comparisons
+- Architecture advice
+- No execution (read-only)
+
+#### **DockerAgent** (`sub_agents/docker_agent.py`)
+- Container operations
+- Docker Compose management
+- Log analysis
+- Health checks
+
+#### **ConfigAgent** (`sub_agents/config_agent.py`)
+- YAML/JSON file generation
+- Configuration validation
+- Template-based generation
+
+#### **BaseAgent** (`sub_agents/base_agent.py`)
+- Base class for all agents
+- Tool execution with governance
+- Error handling and retries
+- LLM interaction
+
+---
+
+### 12. **MCP Servers** (Model Context Protocol)
+
+Pre-built tool servers in `mcp_servers/`:
+
+#### **Docker Tools** (`docker_tools.py`)
+```python
+docker_ps()           # List containers
+docker_logs()         # Get container logs
+docker_inspect()      # Inspect container
+docker_exec()         # Execute command in container
+docker_restart()      # Restart container
+docker_compose_up()   # Start compose stack
+docker_compose_down() # Stop compose stack
+```
+
+#### **Home Assistant Tools** (`homeassistant_tools.py`)
+```python
+ha_get_state()         # Get entity state
+ha_call_service()      # Call HA service
+ha_get_logs()          # Get HA logs
+ha_search_logs()       # Search logs
+ha_list_integrations() # List integrations
+```
+
+#### **Web Search Tools** (`web_search_tools.py`)
+```python
+web_search()  # Search the web (Tavily or Serper)
+# Privacy filter, knowledge cutoff awareness
+```
+
+---
+
+### 13. **Emergency Stop** (`emergency_stop.py`)
+
+**Global kill switch for all operations.**
+
+**Usage**:
 ```bash
-$ python meta_agent.py "check s3 logs for errors"
+# Trigger emergency stop
+python emergency_stop.py
+
+# Checked before every tool execution
+# All operations abort immediately
 ```
 
-**Output**:
-```
-======================================================================
-🧠 META-AGENT: Self-Evolving Request Processing
-======================================================================
+---
 
-📥 Request: check s3 logs for errors
+### 14. **Cost Tracking** (`cost_tracker.py`)
 
-======================================================================
-STEP 1: CLASSIFICATION (The Sorting Hat)
-======================================================================
+**Monitor token usage and API costs.**
 
-   Intent: ANALYSIS
-   Risk Level: 🟢 Green
-   Routing: Diagnosis/Consulting Agent
-```
+**Features**:
+- Token usage tracking
+- Cost estimation per request
+- Hourly/daily limits
+- Warnings before hitting limits
 
-#### Step 2: Tool Discovery
-```
-======================================================================
-STEP 2: TOOL DISCOVERY
-======================================================================
+---
 
-   ⚠️  Missing Tool Detected:
-      Tool: s3
-      Description: AWS S3 access
-      Reason: Task requires S3 bucket access
-```
+### 15. **Context Management** (`context_manager.py`)
 
-#### Step 3: Self-Evolution
-```
-======================================================================
-STEP 3: SELF-EVOLUTION (Toolsmith Agent)
-======================================================================
+**Prune messages to fit token limits.**
 
-   🔧 Agent realizes it needs: s3
-   💡 Switching to 'Developer' mode...
+**Features**:
+- Message prioritization
+- Context window management
+- Important message retention
+- Out-of-memory prevention
 
-🔧 Toolsmith Agent: Generating MCP server for s3
-   Reason: Task requires S3 bucket access
+---
 
-   ⏸️  Code generation requires approval
-      Approval ID: abc12345
-      File: mcp_servers/s3_tools.py
-```
+### 16. **Output Sanitization** (`output_sanitizer.py`)
 
-#### Step 4: Approve Code Generation
+**Remove sensitive information from logs.**
+
+**Features**:
+- API key redaction
+- Password removal
+- Token sanitization
+- Context-aware filtering
+
+**Patterns Detected**:
+- API keys, passwords, tokens
+- AWS credentials
+- Private keys
+- Database URLs
+- Generic secrets
+
+---
+
+## Usage Examples
+
+### Example 1: Simple Consultation
+
 ```bash
-$ python approve.py approve abc12345
+python meta_agent.py "Help me decide between EMR ACK on EKS vs custom EMR wrapper"
 ```
 
-**Output**:
-```
-✅ Code generated: mcp_servers/s3_tools.py
-```
+**What Happens**:
+1. Routes to ConsultingAgent
+2. Provides analysis without execution
+3. No approvals needed (🟢 Green)
 
-#### Step 5: Authentication Check
-```
-======================================================================
-STEP 3.5: AUTHENTICATION CHECK
-======================================================================
+---
 
-   ⚠️  Authentication required for aws
-   📋 I need AWS access. Please run 'aws configure' in your terminal, then tell me 'Ready'.
-   💡 Action: aws configure
-```
+### Example 2: Tool Generation & Execution
 
-#### Step 6: User Authenticates
 ```bash
-$ aws configure
-AWS Access Key ID [None]: AKIA...
-AWS Secret Access Key [None]: ***
-Default region name [None]: us-east-1
-Default output format [None]: json
-
-$ # User types "Ready" in agent
+python meta_agent.py "Check S3 logs for errors"
 ```
 
-#### Step 7: Deployment Approval
-```
-======================================================================
-STEP 4: MVP DEPLOYMENT (Red Risk)
-======================================================================
+**Workflow**:
+1. Detects missing S3 tool
+2. Generates `mcp_servers/s3_tools.py` (approval required)
+3. Checks AWS authentication
+4. Deploys tool (approval required)
+5. Executes query
+6. Returns results
 
-   🚀 Deploying MCP server: s3
-   ⚠️  CRITICAL: This gives the agent new capabilities
-   ⚠️  This is RED risk - requires explicit approval
+**Approvals**: 2 (code generation + deployment)
 
-   ⏸️  Deployment requires approval
-      Approval ID: def67890
-```
+---
 
-#### Step 8: Approve Deployment
+### Example 3: Autonomous System Building
+
 ```bash
-$ python approve.py approve def67890
+python autonomous_builder.py "Build a Raspberry Pi server to block ads on my network"
 ```
 
-**Output**:
+**Complete Workflow**:
 ```
-✅ Deployment approved - deploying (MVP method)...
-   🔍 Step 1: Validating code syntax...
-   ✅ Code syntax valid
-   🔄 Step 2: Reloading MCP tool registry...
-   ✅ Tool registry reloaded
-   ✅ Step 3: Verifying tool availability...
-   ✅ Tool s3 is now available
+Step 1: Context Gathering
+   Q: Network size? A: 10-20 devices
+   Q: Availability? A: Best effort
+   Q: Existing hardware? A: Raspberry Pi 4
+
+Step 2: Design Options
+   Option 1: Pi-hole (Docker) - Recommended (0.85/1.0)
+   Option 2: AdGuard Home - Alternative (0.75/1.0)
+   Selection: 1
+
+Step 3: Resource Quotas
+   Cluster: Single Raspberry Pi
+   CPU: 4 cores
+   Memory: 4GB
+   Storage: 32GB
+
+Step 4: Architecture Design
+   ✅ Docker-based deployment
+   ✅ Pi-hole container
+   ✅ DNS configuration
+   ✅ Backup strategy
+
+Step 5: Authentication
+   ⚠️  SSH to Raspberry Pi required
+   Action: ssh-copy-id pi@raspberrypi
+
+Step 6: Observability (Auto-generated)
+   ✅ pi_monitor
+   ✅ dns_query_logger
+   ✅ block_list_manager
+   ✅ network_health_checker
+
+Step 7: Troubleshooting Tools (Auto-generated)
+   ✅ docker_troubleshooter
+   ✅ log_aggregator
+   ✅ error_tracker
+   ✅ pihole_diagnostics
+
+Step 8: System Building (with Approvals)
+   🔴 Install Docker → Approve
+   🟡 Create config files → Auto-approved (reversible)
+   🔴 Deploy Pi-hole → Approve
+   🟡 Configure DNS → Approve (production)
+
+Result: Complete ad-blocking system deployed
 ```
 
-#### Step 9: Execution
-```
-   ✅ Tool deployed and hot-reloaded (MVP: process reload)
-   🔄 Re-running original request with new tool...
+**Total Interaction**: 5-8 approval clicks, 10-15 minutes
+**Traditional Approach**: 2-4 hours of manual work
 
-   Using: s3.query_logs(bucket="my-bucket")
-   Result: Found 3 errors in S3 logs:
-   - Error 1: Access denied at 2024-01-15 10:30:00
-   - Error 2: Timeout at 2024-01-15 11:45:00
-   - Error 3: Invalid request at 2024-01-15 14:20:00
+---
+
+### Example 4: Docker Operations
+
+```bash
+python meta_agent.py "Check Docker logs for errors in the last hour"
 ```
 
-#### Final Result
+**What Happens**:
+1. Routes to DockerAgent
+2. Lists containers (🟢 Green - auto-executed)
+3. Fetches logs (🟢 Green - auto-executed)
+4. Analyzes errors
+5. Returns results
+
+**No approvals needed** (all read-only operations)
+
+---
+
+### Example 5: Development Environment
+
+```bash
+# Set dev environment
+export AI_BRAIN_ENVIRONMENT=dev
+
+python meta_agent.py "Deploy new version of my app"
 ```
-✅ COMPLETE: S3 logs analyzed
-   Status: 3 errors found
-   Agent: Successfully used newly generated s3_tools
-```
+
+**What Happens**:
+- 🟢 Green tasks: Auto-executed
+- 🟡 Yellow tasks: Auto-approved (dev environment)
+- 🔴 Red tasks: Still require approval
+
+**In dev**: More autonomous, faster iteration
+**In production**: More cautious, requires approvals
+
+---
 
 ## Configuration
 
-### Environment Variables
+### LLM Provider Configuration
+
+**Default (Ollama - Local)**:
+```bash
+# No configuration needed
+python meta_agent.py "your task"
+# Will prompt for provider selection or use Ollama by default
+```
+
+**Environment Variables**:
+```bash
+export AI_BRAIN_LLM_PROVIDER=ollama
+export AI_BRAIN_LLM_MODEL=gemma3:4b
+```
+
+**OpenAI**:
+```bash
+export AI_BRAIN_LLM_PROVIDER=openai
+export OPENAI_API_KEY=sk-...
+export AI_BRAIN_LLM_MODEL=gpt-4
+```
+
+**Anthropic**:
+```bash
+export AI_BRAIN_LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+export AI_BRAIN_LLM_MODEL=claude-3-sonnet-20240229
+```
+
+### Environment Configuration
 
 ```bash
-# Web Search (Tavily AI - preferred)
-export TAVILY_API_KEY="your-key-here"
+# Development (auto-approve yellow tasks)
+export AI_BRAIN_ENVIRONMENT=dev
 
-# Web Search (Serper.dev - fallback)
-export SERPER_API_KEY="your-key-here"
+# Staging
+export AI_BRAIN_ENVIRONMENT=staging
 
-# Home Assistant
-export HA_TOKEN="your-token-here"
-
-# AWS (via aws configure, not env var)
-# Kubernetes (via kubectl config, not env var)
+# Production (require approvals - default)
+export AI_BRAIN_ENVIRONMENT=production
 ```
 
-### .env File
+### Web Search Configuration
 
-Create `.env` file (gitignored):
+```bash
+# Tavily AI (recommended)
+export TAVILY_API_KEY=your-key
+
+# Serper.dev (alternative)
+export SERPER_API_KEY=your-key
 ```
-TAVILY_API_KEY=your-key-here
-COOKIDOO_API_KEY=your-key-here
-```
+
+---
 
 ## File Structure
 
 ```
-mini-jarvis-1/
-├── meta_agent.py              # Main meta-agent orchestrator
-├── autonomous_router.py       # Intelligent task routing
-├── governance.py              # Traffic Light Protocol
-├── auth_broker.py            # Identity management
-├── fact_checker.py           # Validation & memory
-├── autonomous_orchestrator.py # Execution coordinator
-├── approve.py                # Approval CLI
+close-to-zero-prompting-ai-brain/
+├── config.py                    # Central configuration & LLM provider
+├── meta_agent.py                # Main orchestrator
+├── autonomous_builder.py        # Complete system building
+├── autonomous_router.py         # Intelligent task routing
+├── design_consultant.py         # Architecture design with Q&A
+├── architecture_agent.py        # System architecture generation
+├── observability_generator.py   # Monitoring tool creation
+├── governance.py                # Traffic Light Protocol
+├── auth_broker.py              # Identity management
+├── fact_checker.py             # Validation & memory
+├── autonomous_orchestrator.py  # Execution coordinator
+├── llm_provider.py             # LLM abstraction layer
+├── output_sanitizer.py         # Sensitive data removal
+├── cost_tracker.py             # Token/cost tracking
+├── context_manager.py          # Context window management
+├── emergency_stop.py           # Global kill switch
+├── approve.py                  # Approval CLI
 ├── sub_agents/
-│   ├── base_agent.py         # Base class for all agents
-│   ├── consulting_agent.py   # Analysis & recommendations
-│   ├── docker_agent.py       # Container operations
-│   └── config_agent.py       # Configuration management
+│   ├── base_agent.py          # Base class for all agents
+│   ├── consulting_agent.py    # Analysis & recommendations
+│   ├── docker_agent.py        # Container operations
+│   └── config_agent.py        # Configuration management
 ├── mcp_servers/
-│   ├── docker_tools.py       # Docker MCP server
-│   ├── homeassistant_tools.py # HA MCP server
-│   └── web_search_tools.py   # Web search MCP server
-├── scripts/
-│   └── add_secret.sh         # Secure secret injection
-├── .env                      # Environment variables (gitignored)
-├── .secrets/                 # OAuth tokens (gitignored)
-└── .agent_memory.json        # Agent learning memory
+│   ├── docker_tools.py        # Docker MCP server
+│   ├── homeassistant_tools.py # Home Assistant MCP server
+│   └── web_search_tools.py    # Web search MCP server
+├── .env                       # Environment variables (gitignored)
+├── .secrets/                  # OAuth tokens (gitignored)
+├── .agent_memory.json         # Agent learning memory
+└── requirements.txt           # Python dependencies
 ```
 
-## Key Features
-
-### ✅ Autonomous Operation
-- Minimal human intervention
-- Intelligent routing
-- Self-correction and learning
-
-### ✅ Self-Evolution
-- Detects missing tools
-- Generates new capabilities
-- Hot-reloads without restart
-
-### ✅ Security
-- Traffic Light Protocol
-- Authentication patterns
-- Privacy filters
-- Approval gates
-
-### ✅ Learning
-- Memory of past solutions
-- Error pattern detection
-- Success pattern reuse
-- Loop prevention
+---
 
 ## Best Practices
 
-### 1. Start Simple
-- Let the agent handle routine tasks
+### 1. **Start Simple**
+- Let the agent handle routine tasks autonomously
 - Only intervene for critical operations
 - Trust the governance framework
 
-### 2. Use Approvals Wisely
-- Review plans before approval
+### 2. **Use Approvals Wisely**
+- Review change plans before approval
 - Understand what the agent will do
-- Reject if unsure
+- Reject if unsure—you can always try again
 
-### 3. Authentication
-- Never paste credentials in chat
-- Use host inheritance for CLI tools
-- Use .env for API keys
-- Use OAuth for user data
+### 3. **Authentication Security**
+- **Never** paste credentials in chat
+- Use host inheritance for CLI tools (AWS, K8s)
+- Use `.env` file for API keys
+- Use OAuth for user data (Gmail, Calendar)
 
-### 4. Monitor Memory
+### 4. **Monitor Memory**
 - Check `.agent_memory.json` periodically
 - Review learned patterns
-- Clear if needed
+- Clear if agent behavior becomes stale
+
+### 5. **Environment-Aware Development**
+- Use `dev` environment for fast iteration
+- Use `production` for safety-critical operations
+- Test in `staging` before production
+
+### 6. **LLM Provider Selection**
+- **Ollama**: Free, private, good for most tasks
+- **OpenAI**: Better reasoning, costs money
+- **Anthropic**: Good balance, costs money
+- Start with Ollama, upgrade if needed
+
+---
 
 ## Troubleshooting
 
+### Ollama Issues
+
+**Ollama not running**:
+```bash
+# Start Ollama
+ollama serve
+
+# Check if running
+curl http://localhost:11434/api/tags
+```
+
+**Model not found**:
+```bash
+# Pull the model
+ollama pull gemma3:4b
+
+# List available models
+ollama list
+```
+
 ### Agent Stuck in Loop
+
 ```bash
 # Check error history
-cat .agent_memory.json | grep error_history
+cat .agent_memory.json | jq '.error_history'
 
 # Clear memory if needed
 rm .agent_memory.json
 ```
 
 ### Tool Not Found
+
 ```bash
 # Check available tools
 python -c "from meta_agent import MetaAgent; print(MetaAgent()._discover_tools())"
 
 # Check MCP servers directory
 ls mcp_servers/
+
+# Verify hot-reload worked
+grep "Tool.*available" logs/
 ```
 
 ### Authentication Issues
+
+**AWS**:
 ```bash
-# Check AWS credentials
+# Check credentials
 aws sts get-caller-identity
 
-# Check .env file
+# Configure if needed
+aws configure
+```
+
+**Kubernetes**:
+```bash
+# Check config
+kubectl cluster-info
+
+# Update kubeconfig
+aws eks update-kubeconfig --name cluster --region region
+```
+
+**API Keys**:
+```bash
+# Check .env file (without exposing keys)
 cat .env | grep -v "KEY\|PASSWORD"
 
-# Check OAuth tokens
-ls .secrets/
+# Verify environment variables
+env | grep AI_BRAIN
 ```
+
+### Import Errors
+
+```bash
+# Reinstall dependencies
+pip install -r requirements.txt --upgrade
+
+# Check virtual environment is activated
+which python  # Should show venv path
+
+# Verify Python version
+python --version  # Should be 3.11+
+```
+
+### LLM Provider Issues
+
+**OpenAI/Anthropic**:
+```bash
+# Check API key is set
+echo $OPENAI_API_KEY
+echo $ANTHROPIC_API_KEY
+
+# Test API connection
+python -c "from config import get_llm_provider_from_user; get_llm_provider_from_user(skip_prompt=True)"
+```
+
+---
+
+## Advanced Usage
+
+### Non-Interactive Mode
+
+```bash
+# Use environment variables to skip prompts
+export AI_BRAIN_LLM_PROVIDER=ollama
+export AI_BRAIN_ENVIRONMENT=dev
+
+# Run without interaction
+python meta_agent.py "your task"
+```
+
+### Batch Operations
+
+```bash
+# Create a task file
+cat > tasks.txt << EOF
+Check Docker logs
+Deploy new version
+Run health checks
+EOF
+
+# Process tasks
+while read task; do
+  python meta_agent.py "$task"
+done < tasks.txt
+```
+
+### Custom Tool Development
+
+```python
+# Create a new MCP server in mcp_servers/
+
+# Example: mcp_servers/custom_tool.py
+from typing import Dict, Any
+
+def custom_operation(param: str) -> Dict[str, Any]:
+    """Your custom tool logic."""
+    return {"result": "success"}
+
+# Register in governance.py
+TOOL_RISK_MAP = {
+    "custom_operation": RiskLevel.GREEN,  # or YELLOW, RED
+}
+
+# Tool will be auto-discovered on next run
+```
+
+---
 
 ## Contributing
 
-When adding new capabilities:
+Contributions are welcome! When adding new features:
 
 1. **Create MCP Server**: Add to `mcp_servers/`
 2. **Register in Governance**: Add to `governance.py`
-3. **Add to Base Agent**: Update `sub_agents/base_agent.py`
-4. **Update Documentation**: Add examples and walkthroughs
+3. **Update Documentation**: Add examples and usage
+4. **Test**: Verify in dev environment
+5. **Submit PR**: With clear description
+
+---
 
 ## License
 
-[Your License Here]
+MIT License - See LICENSE file for details
+
+---
 
 ## Support
 
 For issues or questions:
-- Check documentation in `/docs`
-- Review example walkthroughs
-- Check `.agent_memory.json` for learned patterns
+- **GitHub Issues**: Report bugs and feature requests
+- **Documentation**: Check docs in `/docs` folder
+- **Memory**: Review `.agent_memory.json` for learned patterns
+- **Community**: Join discussions
 
 ---
 
-**The Close-to-Zero Prompting AI Brain** - Autonomous, Self-Evolving, Secure.
+## Acknowledgments
 
+Built with:
+- **LangChain** & **LangGraph** - Agent orchestration
+- **Ollama** - Local LLM runtime
+- **Model Context Protocol (MCP)** - Tool abstraction
+
+---
+
+**The Close-to-Zero Prompting AI Brain** - *Autonomous, Self-Evolving, Secure.*
+
+> "Give it a goal, approve critical steps, let it build."
+
+**Version**: 1.0.0
+**Status**: Production Ready
+**Philosophy**: Close to Zero Prompting

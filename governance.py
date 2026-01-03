@@ -159,21 +159,41 @@ class GovernanceFramework:
                 "message": f"Tool '{tool_name}' not allowed in '{environment}' environment"
             }
         
-        # GREEN tools: Always allowed
+        # GREEN tools: Always allowed (fully autonomous)
         if tool.risk_level == RiskLevel.GREEN:
             return {
                 "allowed": True,
                 "risk_level": RiskLevel.GREEN.value,
                 "requires_approval": False,
-                "message": "Read-only operation - safe to execute"
+                "message": "Read-only operation - safe to execute autonomously"
             }
         
-        # YELLOW/RED tools: Require approval
+        # YELLOW tools: Check if can auto-approve
+        if tool.risk_level == RiskLevel.YELLOW:
+            # Check environment - auto-approve in dev/staging
+            if environment in ["dev", "development", "staging", "local"]:
+                return {
+                    "allowed": True,
+                    "risk_level": RiskLevel.YELLOW.value,
+                    "requires_approval": False,
+                    "message": "Yellow operation - auto-approved in non-production environment"
+                }
+            
+            # In production, require approval for yellow
+            return {
+                "allowed": False,
+                "risk_level": RiskLevel.YELLOW.value,
+                "requires_approval": True,
+                "approval_message": tool.approval_message or f"Tool '{tool_name}' requires approval (YELLOW risk)",
+                "tool": tool
+            }
+        
+        # RED tools: Always require approval (never auto-approve)
         return {
             "allowed": False,
-            "risk_level": tool.risk_level.value,
+            "risk_level": RiskLevel.RED.value,
             "requires_approval": True,
-            "approval_message": tool.approval_message or f"Tool '{tool_name}' requires approval",
+            "approval_message": tool.approval_message or f"Tool '{tool_name}' requires approval (RED risk - critical operation)",
             "tool": tool
         }
     

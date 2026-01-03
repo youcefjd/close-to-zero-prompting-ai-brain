@@ -5,6 +5,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import HumanMessage
+from semantic_router import get_semantic_router
 import json
 import re
 
@@ -21,12 +22,15 @@ class AutonomousRouter:
         "system": "SystemAgent - Handles file operations, shell commands, system-level tasks",
         "cloud": "ConsultingAgent - Handles cloud architecture, EKS, EMR, ACK, infrastructure decisions",
         "consulting": "ConsultingAgent - Handles analysis, comparison, recommendations, architectural decisions",
+        "design": "DesignConsultant - Handles complex system design with Q&A, options, and resource planning",
         "general": "GeneralAgent - Handles tasks that don't fit other categories"
     }
     
-    def __init__(self):
-        self.llm = ChatOllama(model="llama3.1:latest", temperature=0.3)
+    def __init__(self, use_semantic: bool = True):
+        self.llm = ChatOllama(model="gemma3:4b", temperature=0.3)
         self.routing_history = []  # Learn from routing decisions
+        self.use_semantic = use_semantic
+        self.semantic_router = get_semantic_router() if use_semantic else None
         
     def analyze_task(self, task: str) -> Dict[str, Any]:
         """Analyze task to determine complexity, domain, and required sub-agents."""
@@ -58,6 +62,7 @@ TASK TYPE DETECTION:
 - "consultation": Task asks to ANALYZE, COMPARE, ASSESS, RECOMMEND, EVALUATE (no execution needed)
 
 DOMAIN DETECTION:
+- "design": Building systems from scratch, complex architecture, needs design decisions, resource planning
 - "cloud": EKS, EMR, ACK, AWS, Kubernetes, Terraform, infrastructure decisions
 - "consulting": Analysis, comparison, recommendations, architectural decisions
 - "docker": Container operations, docker-compose
@@ -66,6 +71,13 @@ DOMAIN DETECTION:
 - "homeassistant": HA integrations, entities, automations
 - "system": File operations, shell commands
 - "general": Fallback
+
+DESIGN AGENT DETECTION:
+Route to "design" agent when task involves:
+- "build system", "create system", "design system", "from scratch"
+- "microservices", "architecture", "infrastructure design"
+- Needs design decisions, options, resource quotas
+- Complex system building requiring Q&A and planning
 
 CRITICAL: Only set needs_clarification=true if:
 - Task is genuinely ambiguous (e.g., "improve performance" without context)
@@ -99,12 +111,24 @@ Otherwise, proceed autonomously."""),
         """Fallback routing based on keywords."""
         task_lower = task.lower()
         
-        # Check for consultation/analysis tasks first
+        # Check for design/system building tasks first
+        design_keywords = [
+            "build system", "create system", "design system", "from scratch",
+            "microservices", "architecture", "infrastructure design",
+            "build application", "design application", "system design",
+            "build a", "create a", "build", "server", "blocks ads", "ad blocker",
+            "raspberry pi", "raspberry", "network", "dns"
+        ]
+        is_design_task = any(kw in task_lower for kw in design_keywords)
+        
+        # Check for consultation/analysis tasks
         consultation_keywords = ["assess", "compare", "recommend", "evaluate", "analysis", "which is better", "should i use", "better suited"]
         is_consultation = any(kw in task_lower for kw in consultation_keywords)
         
         primary = "general"
-        if is_consultation:
+        if is_design_task:
+            primary = "design"
+        elif is_consultation:
             # Check for cloud-specific consultation
             if any(kw in task_lower for kw in ["eks", "emr", "ack", "aws", "kubernetes", "terraform", "cloud", "infrastructure"]):
                 primary = "cloud"
@@ -137,7 +161,29 @@ Otherwise, proceed autonomously."""),
     
     def route(self, task: str) -> Dict[str, Any]:
         """Route task to appropriate sub-agent(s)."""
-        analysis = self.analyze_task(task)
+        # Try semantic routing first if available
+        if self.use_semantic and self.semantic_router:
+            try:
+                semantic_result = self.semantic_router.route(task)
+                if semantic_result.get("confidence", 0) > 0.6:  # High confidence
+                    # Use semantic routing result
+                    analysis = {
+                        "task_type": semantic_result.get("task_type", "execution"),
+                        "primary_agent": semantic_result["primary_agent"],
+                        "secondary_agents": semantic_result.get("secondary_agents", []),
+                        "complexity": "medium",
+                        "needs_clarification": False,
+                        "confidence": semantic_result.get("confidence", 0.7),
+                        "method": "semantic"
+                    }
+                else:
+                    # Low confidence, fall back to LLM analysis
+                    analysis = self.analyze_task(task)
+            except Exception as e:
+                print(f"⚠️  Semantic routing failed: {e}, using LLM analysis")
+                analysis = self.analyze_task(task)
+        else:
+            analysis = self.analyze_task(task)
         
         # Check if clarification is needed
         if analysis.get("needs_clarification"):
