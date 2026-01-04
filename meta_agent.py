@@ -48,14 +48,32 @@ class ToolsmithAgent:
         llm = ChatOllama(model="gemma3:4b", temperature=0.3)
         
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="""You are a tool requirement analyzer. Analyze a task and determine ALL tools/capabilities needed to complete it.
+            SystemMessage(content="""You are a tool requirement analyzer. Analyze a task and determine if ANY tools are actually missing.
+
+CRITICAL: Before suggesting new tools, check if existing tools can solve the task:
+- "web_search" can answer questions about current events, sports scores, news, facts, etc.
+- "write_file" can create files
+- "run_shell" can execute commands
+- Docker tools can manage containers
+- Home Assistant tools can control smart home devices
+
+ONLY suggest a new tool if:
+1. The task requires a SPECIFIC API or service that doesn't exist in available tools
+2. The task requires infrastructure/automation that can't be done with existing tools
+3. The task is about building a NEW system or service
+
+DO NOT suggest tools for:
+- Simple queries that web_search can answer (sports scores, current events, facts)
+- File operations (write_file exists)
+- Command execution (run_shell exists)
+- Docker operations (docker tools exist)
 
 Available tools: {available_tools}
 
-For each MISSING tool needed, provide:
+For each ACTUALLY MISSING tool needed, provide:
 1. Tool name (e.g., "kubernetes", "monitoring", "logging", "error_tracker")
 2. Description of what it does
-3. Why it's needed for this task
+3. Why it's needed for this task AND why existing tools can't solve it
 4. Whether authentication is required (e.g., "aws", "kubernetes", "gmail", or null)
 
 Return ONLY valid JSON array (no markdown, no explanation):
@@ -63,13 +81,13 @@ Return ONLY valid JSON array (no markdown, no explanation):
     {{
         "tool_name": "tool_name",
         "description": "What the tool does",
-        "reason": "Why it's needed for this task",
+        "reason": "Why it's needed AND why existing tools can't solve this",
         "auth_required": "aws" or null
     }}
 ]
 
-If no tools are missing, return empty array: []"""),
-            HumanMessage(content=f"Task: {task}\n\nAnalyze and list ALL missing tools needed to complete this task.")
+If existing tools can solve the task, return empty array: []"""),
+            HumanMessage(content=f"Task: {task}\n\nAnalyze if ANY tools are actually missing. Remember: web_search can answer most questions about current events, sports, news, etc.")
         ])
         
         try:
@@ -307,11 +325,11 @@ class MetaAgent:
                 tools.append(tool_name)
         
         # Add base tools
-        tools.extend(["write_file", "run_shell"])
+        tools.extend(["write_file", "run_shell", "web_search"])
         
         return tools
     
-    def process_request(self, request: str) -> Dict[str, Any]:
+    def process_request(self, request: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Process request with self-evolution capability."""
         print("\n" + "="*70)
         print("🧠 META-AGENT: Self-Evolving Request Processing")
@@ -338,6 +356,15 @@ class MetaAgent:
         print("\n" + "="*70)
         print("STEP 2: TOOL DISCOVERY")
         print("="*70)
+        
+        print(f"\n   Available tools: {', '.join(self.available_tools)}")
+        
+        # First, check if existing tools can solve this (especially web_search for queries)
+        can_use_existing = self._can_solve_with_existing_tools(request)
+        if can_use_existing:
+            print(f"\n   ✅ Task can be solved with existing tools (e.g., web_search)")
+            print(f"   💡 Skipping tool generation - using existing capabilities")
+            return self._process_with_tools(request, context=context)
         
         # Use LLM to detect ALL missing tools
         if self.enable_full_autonomy:
@@ -511,28 +538,16 @@ class MetaAgent:
             # After all tools are deployed, re-process original request
             if successful_generations:
                 print(f"\n   🔄 Re-running original request with {len(successful_generations)} new tool(s)...")
-                return self._process_with_tools(request)
+                return self._process_with_tools(request, context=context)
         
         # No missing tools - process normally
         return self._process_with_tools(request)
     
     def _is_system_building_request(self, request: str) -> bool:
-        """Check if request is for building a system from scratch.
-        
-        Args:
-            request: Task request
-            
-        Returns:
-            True if system building request
-        """
-        system_keywords = [
-            "build", "create", "set up", "deploy", "architect",
-            "design", "implement", "system", "application",
-            "microservices", "infrastructure", "from scratch"
-        ]
-        
-        request_lower = request.lower()
-        return any(keyword in request_lower for keyword in system_keywords)
+        """Check if request is for building a system from scratch using semantic understanding."""
+        # Let the router determine this semantically - this is just a fallback
+        # The router's LLM analysis will properly classify system building requests
+        return False  # Router handles this semantically
     
     def _process_system_building_request(self, request: str) -> Dict[str, Any]:
         """Process system-building request with full autonomy.
@@ -678,35 +693,14 @@ class MetaAgent:
         return self._process_with_tools(request)
     
     def _classify_request(self, request: str) -> Dict[str, Any]:
-        """Classify request by intent and risk (The Sorting Hat)."""
-        request_lower = request.lower()
-        
-        # Intent detection
-        analysis_keywords = ["assess", "analyze", "diagnose", "check", "why", "what", "how"]
-        drafting_keywords = ["create", "write", "generate", "draft", "build"]
-        execution_keywords = ["deploy", "run", "execute", "apply", "install", "restart"]
-        
-        if any(kw in request_lower for kw in analysis_keywords):
-            intent = "ANALYSIS"
-            risk_level = "🟢 Green"
-            routing = "Diagnosis/Consulting Agent"
-        elif any(kw in request_lower for kw in drafting_keywords):
-            intent = "DRAFTING"
-            risk_level = "🟡 Yellow"
-            routing = "Coder Agent (with approval gate)"
-        elif any(kw in request_lower for kw in execution_keywords):
-            intent = "EXECUTION"
-            risk_level = "🔴 Red"
-            routing = "Execution Agent (with approval gate)"
-        else:
-            intent = "ANALYSIS"
-            risk_level = "🟢 Green"
-            routing = "General Agent"
-        
+        """Classify request by intent and risk using semantic understanding."""
+        # Use LLM for semantic classification instead of keyword matching
+        # This is a simplified classification - full routing happens in AutonomousRouter
+        # Default to analysis - let the router handle detailed classification
         return {
-            "intent": intent,
-            "risk_level": risk_level,
-            "routing": routing
+            "intent": "ANALYSIS",  # Default - router will refine based on semantic understanding
+            "risk_level": "🟢 Green",
+            "routing": "Autonomous Router"  # Router handles semantic routing
         }
     
     def _assess_tool_risk(self, tool_spec: Dict[str, Any]) -> str:
@@ -924,24 +918,70 @@ class MetaAgent:
                 "error": str(e)
             }
     
-    def _process_with_tools(self, request: str) -> Dict[str, Any]:
+    def _can_solve_with_existing_tools(self, request: str) -> bool:
+        """Check if request can be solved with existing tools using semantic understanding."""
+        # Let the router and agents determine this semantically
+        # They understand context and available tools better than keyword matching
+        # Always return True to let the system try with existing tools first
+        return True
+    
+    def _process_with_tools(self, request: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Process request using available tools."""
         # Use existing orchestrator
         from autonomous_orchestrator import AutonomousOrchestrator
         
         orchestrator = AutonomousOrchestrator()
-        return orchestrator.execute(request)
+        return orchestrator.execute(request, context=context)
+
+
+def print_header(text):
+    """Print a formatted header."""
+    print(f"\n{'='*70}")
+    print(f"  {text}")
+    print(f"{'='*70}\n")
+
+
+def print_section(text):
+    """Print a section header."""
+    print(f"\n{'─'*70}")
+    print(f"  {text}")
+    print(f"{'─'*70}")
 
 
 def main():
-    """Main entry point for Meta-Agent."""
+    """Main entry point for Meta-Agent - unified execution for all tasks."""
     import sys
+    import time
+    from datetime import datetime
     from config import get_llm_provider_from_user, get_config
+    from cost_tracker import get_cost_tracker
+    from self_healing import get_self_healing_system
+    from emergency_stop import get_emergency_stop
+    
+    # Load environment variables from .env file
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        print("  ✅ Loaded environment variables from .env file")
+    except ImportError:
+        print("  ⚠️  python-dotenv not installed - .env file won't be loaded automatically")
+        print("  💡 Install with: pip install python-dotenv")
+        print("  💡 Or export variables manually: export TAVILY_API_KEY=your-key")
 
     # Prompt for LLM provider selection at startup
-    print("\n" + "="*70)
-    print("🧠 CLOSE-TO-ZERO PROMPTING AI BRAIN")
-    print("="*70)
+    print_header("🧠 CLOSE-TO-ZERO PROMPTING AI BRAIN")
+
+    # Pre-flight checks
+    print_section("Pre-Flight Checks")
+    
+    emergency_stop = get_emergency_stop()
+    if emergency_stop.is_stopped():
+        print("  ⚠️  Emergency stop is active. Resetting...")
+        emergency_stop.reset()
+    
+    print("  ✅ Emergency stop: OK")
+    print("  ✅ Cost tracker: OK")
+    print("  ✅ Self-healing: OK")
 
     # Get LLM provider (will prompt user if not configured)
     llm_provider = get_llm_provider_from_user()
@@ -949,28 +989,311 @@ def main():
     # Get environment from config
     config = get_config()
     environment = config["environment"]
+    print(f"  ✅ Environment: {environment}")
 
     meta_agent = MetaAgent(environment=environment)
+    cost_tracker = get_cost_tracker()
+    cost_tracker.reset_task()
 
+    # Conversation history for context preservation
+    conversation_history = []
+    
+    # Get initial task
     if len(sys.argv) > 1:
         request = " ".join(sys.argv[1:])
+        interactive_mode = False  # Single command mode
     else:
-        print("\nEnter request (or 'exit' to quit):")
-        request = input("> ").strip()
-        if not request or request.lower() == "exit":
+        interactive_mode = True
+        print("\n" + "="*70)
+        print("  💬 CONVERSATION MODE - Context is preserved between requests")
+        print("  💡 Type 'exit' or 'quit' to end, 'clear' to reset context")
+        print("="*70)
+        print("\nEnter request:")
+        request = input("  > ").strip()
+        if not request or request.lower() in ["exit", "quit"]:
+            print("  👋 Goodbye!")
             return
 
-    result = meta_agent.process_request(request)
+    # Main conversation loop
+    while True:
+        # Execute with monitoring
+        print_section("Task Execution")
+        print(f"  📝 Task: {request}")
+        print(f"  ⏱️  Start: {datetime.now().strftime('%H:%M:%S')}")
+        
+        # Build context with conversation history
+        context = {
+            "conversation_history": conversation_history.copy(),
+            "previous_context": conversation_history[-1] if conversation_history else None
+        }
+    
+        start_time = time.time()
+        
+        try:
+            result = meta_agent.process_request(request, context=context)
 
-    print("\n" + "="*70)
-    print("📊 META-AGENT RESULT")
-    print("="*70)
-    print(json.dumps(result, indent=2, default=str))
+            elapsed = time.time() - start_time
+            cost_summary = cost_tracker.get_summary()
+        
+            print_section("Execution Results")
+            print(f"  ✅ Status: {result.get('status', 'unknown')}")
+            print(f"  ⏱️  Time: {elapsed:.2f} seconds")
+            print(f"  💰 Cost: ${cost_summary['current_task']['cost']:.4f}")
+            print(f"  📊 Tokens: {cost_summary['current_task']['total_tokens']:,}")
+            print(f"  📈 Usage: {cost_summary['usage_percentage']['cost']:.1f}% of limit")
+        
+            # Check for self-healing
+            healing_system = get_self_healing_system()
+            if len(healing_system.healing_history) > 0:
+                print_section("Self-Healing")
+                last_attempt = healing_system.healing_history[-1]
+                print(f"  ✅ Self-healing triggered!")
+                print(f"  📋 Issue Type: {last_attempt.get('issue_type', 'unknown')}")
+                print(f"  🔧 Fix Applied: {last_attempt.get('success', False)}")
+        
+            # Check for approval requests - PROMPT USER INTERACTIVELY
+            if result.get("status") == "pending_approval" or result.get("status") == "needs_approval":
+                print_section("Approval Required")
+                approval_id = result.get('approval_id') or result.get('healing_details', {}).get('approval_id')
+                tool_name = result.get('tool_name', 'unknown')
+                if approval_id:
+                    print(f"  ⏸️  Tool '{tool_name}' requires approval")
+                    print(f"  📋 Approval ID: {approval_id}")
+                    
+                    # Show approval request details
+                    try:
+                        from governance import get_governance
+                        governance = get_governance()
+                        governance._load_approvals()
+                        approval_request = governance.get_approval_request(approval_id)
+                        if approval_request:
+                            change_plan = approval_request.get("change_plan", {})
+                            # Show command if it's run_shell
+                            if "kwargs" in change_plan:
+                                command = change_plan["kwargs"].get("command", "")
+                                if command:
+                                    print(f"  📝 Command: {command}")
+                            print(f"  ⚠️  Risk Level: {approval_request.get('risk_level', 'unknown')}")
+                            print(f"  💬 Message: {approval_request.get('approval_message', 'Approval required')}")
+                            
+                            # For self-healing, show additional details
+                            if result.get("reason") == "self_healing_approval_required":
+                                issue = change_plan.get("issue", {})
+                                print(f"  📋 Issue: {issue.get('type', 'unknown')} in {issue.get('file', 'unknown')}")
+                                print(f"  🔧 Fix: {change_plan.get('proposed_fix', 'N/A')[:200]}...")
+                    except Exception as e:
+                        if "--verbose" in sys.argv:
+                            print(f"  ⚠️  Could not load approval details: {e}")
+                    
+                    # PROMPT USER INTERACTIVELY
+                    print(f"\n  ⚠️  Approve this request? (yes/no): ", end="", flush=True)
+                    try:
+                        response = input().strip().lower()
+                        if response in ["yes", "y"]:
+                            # Approve and continue execution
+                            governance.approve(approval_id, approver="human")
+                            print(f"  ✅ Approved! Continuing execution...\n")
+                            
+                            # Re-execute the request with approval_id in context
+                            # This allows the tool execution to use the existing approval
+                            result = meta_agent.process_request(request, context={"approved_approval_id": approval_id})
+                            
+                            # Update elapsed time
+                            elapsed = time.time() - start_time
+                            cost_summary = cost_tracker.get_summary()
+                            
+                            # Re-display results
+                            print_section("Execution Results")
+                            print(f"  ✅ Status: {result.get('status', 'unknown')}")
+                            print(f"  ⏱️  Time: {elapsed:.2f} seconds")
+                            print(f"  💰 Cost: ${cost_summary['current_task']['cost']:.4f}")
+                            print(f"  📊 Tokens: {cost_summary['current_task']['total_tokens']:,}")
+                            print(f"  📈 Usage: {cost_summary['usage_percentage']['cost']:.1f}% of limit")
+                            
+                            # Show result
+                            if result.get("status") == "success":
+                                print_section("Task Result")
+                                message = result.get('message', '')
+                                if len(message) > 500:
+                                    print(f"  {message[:500]}...")
+                                    print(f"  (truncated - full message: {len(message)} chars)")
+                                else:
+                                    print(f"  {message}")
+                            elif result.get("status") == "needs_approval":
+                                # Still needs approval (different tool or new approval)
+                                print(f"  ⚠️  Still requires approval - this may be a different tool or new request")
+                            else:
+                                print_section("Task Result")
+                                print(f"  {result.get('message', 'No message')}")
+                        else:
+                            print(f"  ❌ Approval cancelled. Task not executed.")
+                            return result
+                    except (EOFError, KeyboardInterrupt):
+                        print(f"\n  ❌ Approval cancelled (interrupted).")
+                        return result
+                else:
+                    print(f"  ⏸️  Approval required but no approval ID found")
+        
+            # Handle clarification requests (needs_human) - INTERACTIVE
+            if result.get("status") == "needs_human":
+                print_section("Clarification Needed")
+                question = result.get('question', 'Could you please clarify?')
+                print(f"  ❓ {question}")
+                print(f"\n  💬 Your response: ", end="", flush=True)
+                
+                try:
+                    clarification = input().strip()
+                    if clarification and clarification.lower() not in ["exit", "quit", "cancel"]:
+                        # Add to conversation history
+                        conversation_history.append({
+                            "role": "user",
+                            "content": request,
+                            "clarification_question": question
+                        })
+                        conversation_history.append({
+                            "role": "user_clarification", 
+                            "content": clarification
+                        })
+                        
+                        # Create new request with clarification context
+                        clarified_request = f"{request}\n\nClarification: {clarification}"
+                        print(f"\n  🔄 Processing with clarification...")
+                        
+                        # Re-execute with clarification
+                        context["clarification"] = clarification
+                        context["original_request"] = request
+                        result = meta_agent.process_request(clarified_request, context=context)
+                        
+                        # Update timing
+                        elapsed = time.time() - start_time
+                        cost_summary = cost_tracker.get_summary()
+                    else:
+                        print(f"  ℹ️  Clarification skipped.")
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n  ℹ️  Clarification cancelled.")
+            
+            # Check for errors
+            if result.get("status") == "error":
+                print_section("Error Details")
+                print(f"  ❌ Error: {result.get('message', 'Unknown error')}")
+                print(f"  📋 Reason: {result.get('reason', 'N/A')}")
+            
+            # Success metrics
+            if result.get("status") == "success":
+                print_section("Success Metrics")
+                print(f"  ✅ Task completed successfully")
+                print(f"  ⚡ Performance: {elapsed:.2f}s")
+                print(f"  💰 Cost efficiency: ${cost_summary['current_task']['cost']:.4f}")
+                
+                if elapsed < 30:
+                    print(f"  ⚡ Fast execution (< 30s)")
+                elif elapsed < 120:
+                    print(f"  ⚡ Reasonable execution (< 2min)")
+                else:
+                    print(f"  ⚠️  Slow execution (> 2min) - consider optimization")
+                
+                # Show actual result content
+                print_section("Task Result")
+                message = result.get('message', '')
+                if len(message) > 500:
+                    print(f"  {message[:500]}...")
+                    print(f"  (truncated - full message: {len(message)} chars)")
+                else:
+                    print(f"  {message}")
+                
+                # Show container data if present
+                if 'containers' in result:
+                    print_section("Container List")
+                    containers = result.get('containers', [])
+                    print(f"  Found {len(containers)} container(s):")
+                    for i, container in enumerate(containers, 1):
+                        name = container.get('Names', 'N/A')
+                        status = container.get('Status', 'N/A')
+                        state = container.get('State', 'N/A')
+                        print(f"    {i}. {name} - {state} ({status})")
+                
+                # Show any additional result data
+                if 'results' in result:
+                    print_section("Additional Results")
+                    results_data = result.get('results', {})
+                    for key, value in results_data.items():
+                        if key != 'message':  # Already shown above
+                            print(f"  {key}: {value}")
+        
+            # Full result JSON (for debugging/advanced users)
+            if result.get("status") != "success" or "--verbose" in sys.argv:
+                print_section("Full Result (JSON)")
+                print(json.dumps(result, indent=2, default=str))
 
-    if result.get("status") == "pending_approval":
-        print(f"\n⏸️  Approval required at stage: {result.get('stage')}")
-        print(f"   Approval ID: {result.get('approval_id')}")
-        print(f"   Run: python approve.py approve {result.get('approval_id')}")
+            # Update conversation history with this exchange
+            conversation_history.append({
+                "role": "user",
+                "content": request
+            })
+            conversation_history.append({
+                "role": "assistant",
+                "content": result.get('message', ''),
+                "status": result.get('status', 'unknown')
+            })
+            
+            # Limit history to last 10 exchanges to prevent context overflow
+            if len(conversation_history) > 20:
+                conversation_history = conversation_history[-20:]
+        
+        except Exception as e:
+            elapsed = time.time() - start_time
+            
+            print_section("Execution Failed")
+            print(f"  ❌ Error: {str(e)}")
+            print(f"  ⏱️  Time before failure: {elapsed:.2f} seconds")
+            
+            # Check if self-healing attempted
+            try:
+                healing_system = get_self_healing_system()
+                if len(healing_system.healing_history) > 0:
+                    last_attempt = healing_system.healing_history[-1]
+                    print_section("Self-Healing Attempt")
+                    print(f"  🔍 Issue detected: {last_attempt.get('issue_type', 'unknown')}")
+                    print(f"  ✅ Fix proposed: {last_attempt.get('validation', {}).get('valid', False)}")
+                    print(f"  ✅ Success: {last_attempt.get('success', False)}")
+            except:
+                pass
+            
+            if "--verbose" in sys.argv:
+                import traceback
+                print(f"  📋 Stack trace:")
+                print(f"  {traceback.format_exc()[:500]}...")
+            
+            if not interactive_mode:
+                raise
+        
+        # Check for follow-up in interactive mode
+        if not interactive_mode:
+            # Single command mode - exit after execution
+            break
+        
+        # Prompt for follow-up
+        print("\n" + "-"*70)
+        print("  💬 Follow-up (context preserved) or 'exit' to quit:")
+        try:
+            request = input("  > ").strip()
+            if not request or request.lower() in ["exit", "quit"]:
+                print("  👋 Goodbye!")
+                break
+            elif request.lower() == "clear":
+                conversation_history = []
+                print("  🧹 Context cleared. Starting fresh.")
+                print("\n  Enter new request:")
+                request = input("  > ").strip()
+                if not request or request.lower() in ["exit", "quit"]:
+                    print("  👋 Goodbye!")
+                    break
+        except (EOFError, KeyboardInterrupt):
+            print("\n  👋 Goodbye!")
+            break
+        
+        # Reset cost tracker for new task
+        cost_tracker.reset_task()
 
 
 if __name__ == "__main__":

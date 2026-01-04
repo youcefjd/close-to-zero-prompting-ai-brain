@@ -69,9 +69,21 @@ def _search_tavily(query: str, api_key: str, max_results: int) -> Dict[str, Any]
         headers = {
             "Content-Type": "application/json"
         }
+        
+        # Enhance query for live/current information
+        enhanced_query = query
+        query_lower = query.lower()
+        if any(kw in query_lower for kw in ["score", "rn", "right now", "now", "live", "current"]):
+            # Ensure query emphasizes live/current information
+            if "live" not in query_lower:
+                enhanced_query = f"{query} live score"
+            # Add recency filter for sports scores
+            if "score" in query_lower:
+                enhanced_query = f"{query} live match today"
+        
         payload = {
             "api_key": api_key,
-            "query": query,
+            "query": enhanced_query,
             "search_depth": "advanced",
             "max_results": max_results,
             "include_answer": True,
@@ -87,15 +99,54 @@ def _search_tavily(query: str, api_key: str, max_results: int) -> Dict[str, Any]
         answer = data.get("answer", "")
         results = data.get("results", [])
         
-        sources = [r.get("url", "") for r in results]
+        # Format sources with metadata
+        sources = []
+        for r in results:
+            sources.append({
+                "url": r.get("url", ""),
+                "title": r.get("title", ""),
+                "content": r.get("content", "")[:200]  # Preview
+            })
+        
         content_snippets = [r.get("content", "") for r in results]
+        
+        # For live queries, validate answer recency
+        query_lower = query.lower()
+        is_live_query = any(kw in query_lower for kw in ["live", "now", "current", "rn", "right now", "score"])
+        
+        if is_live_query and answer:
+            import re
+            from datetime import datetime
+            
+            # Check for dates in answer
+            date_pattern = r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+(20\d{2})'
+            date_matches = re.findall(date_pattern, answer)
+            
+            current_year = datetime.now().year
+            stale_detected = False
+            
+            for month, year_str in date_matches:
+                try:
+                    year = int(year_str)
+                    # If date is in future (beyond current year) or very old, mark as stale
+                    if year > current_year or year < current_year - 1:
+                        stale_detected = True
+                        break
+                except:
+                    pass
+            
+            if stale_detected:
+                # Mark answer as potentially stale
+                answer = f"⚠️ The search returned information that may not be current (dates found: {', '.join([f'{m} {y}' for m, y in date_matches[:2]])}).\n\n{answer}\n\nFor the most current live score, please check the live sources below."
         
         return {
             "status": "success",
             "answer": answer,
             "sources": sources,
             "content": "\n\n---\n\n".join(content_snippets),
-            "provider": "tavily"
+            "provider": "tavily",
+            "original_query": query,
+            "enhanced_query": enhanced_query
         }
     except requests.exceptions.RequestException as e:
         return {

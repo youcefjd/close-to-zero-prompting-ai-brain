@@ -2,6 +2,7 @@
 
 from typing import Dict, Any, Optional
 from sub_agents.base_agent import BaseSubAgent
+from langchain_core.messages import HumanMessage, AIMessage
 import json
 import yaml
 import re

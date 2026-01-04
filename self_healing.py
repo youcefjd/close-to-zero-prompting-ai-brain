@@ -347,6 +347,17 @@ If you cannot propose a safe fix, respond with "CANNOT_FIX: [reason]"
             if fix_code.startswith("CANNOT_FIX:"):
                 return None
             
+            # Extract code from markdown code blocks if present
+            import re
+            code_block_match = re.search(r'```(?:python)?\n?(.*?)```', fix_code, re.DOTALL)
+            if code_block_match:
+                fix_code = code_block_match.group(1).strip()
+            
+            # If fix is just an import statement, extract it
+            import_match = re.search(r'^from\s+[\w\.]+\s+import\s+[\w\s,]+$', fix_code, re.MULTILINE)
+            if import_match:
+                fix_code = import_match.group(0)
+            
             return fix_code
         except Exception as e:
             print(f"  ⚠️  Error proposing fix: {e}")
@@ -524,9 +535,16 @@ class SelfHealingSystem:
         
         # Step 5: Check governance (self-modification requires approval)
         print(f"   🔐 Checking governance...")
+        environment = context.get("environment", "production")
+        
         permission = self.governance.check_permission(
             "self_modify_codebase",
-            {"issue_type": issue.issue_type, "severity": issue.severity, "file": issue.file_path}
+            {
+                "issue_type": issue.issue_type,
+                "severity": issue.severity,
+                "file": issue.file_path,
+                "environment": environment  # Pass environment so governance can auto-approve in dev/staging
+            }
         )
         
         if not permission["allowed"]:
@@ -542,7 +560,7 @@ class SelfHealingSystem:
                     },
                     "proposed_fix": proposed_fix[:500]  # Truncate for approval
                 },
-                {"environment": context.get("environment", "production")}
+                {"environment": environment}
             )
             
             result.message = f"Fix requires approval. Approval ID: {approval_id}"

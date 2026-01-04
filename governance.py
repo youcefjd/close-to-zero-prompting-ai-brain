@@ -145,6 +145,114 @@ class GovernanceFramework:
     
     def check_permission(self, tool_name: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Check if tool can be executed autonomously."""
+        context = context or {}
+        
+        # Special handling for run_shell - use LLM to understand if command is read-only or write
+        # 🟢 GREEN: Read-only operations should NEVER ask for approval
+        if tool_name == "run_shell":
+            # Extract command from various possible locations in context
+            command = (
+                context.get("command") or 
+                (context.get("kwargs", {}).get("command", "")) or
+                (context.get("change_plan", {}).get("kwargs", {}).get("command", ""))
+            )
+            
+            # Try to get command from various sources
+            if not command:
+                if "kwargs" in context:
+                    command_from_kwargs = context.get("kwargs", {}).get("command", "")
+                    if command_from_kwargs:
+                        command = command_from_kwargs
+            
+            if command:
+                # Use LLM to semantically understand if this is a read or write operation
+                from langchain_ollama import ChatOllama
+                from langchain_core.prompts import ChatPromptTemplate
+                from langchain_core.messages import SystemMessage, HumanMessage
+                
+                llm = ChatOllama(model="gemma3:4b", temperature=0.1)
+                
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessage(content="""You are a command analyzer. Your job is to understand the semantic meaning of shell commands.
+
+PRINCIPLES:
+1. Understand what the command DOES, not just pattern-match
+2. Read operations: Commands that RETRIEVE information without modifying system state
+3. Write operations: Commands that MODIFY system state, files, settings, or configurations
+
+READ OPERATIONS (🟢 GREEN - no approval needed):
+- Getting information: status, list, show, get, output, query, read
+- Viewing data: cat, less, head, tail, grep (without >), find (without -exec)
+- Inspecting: ps, top, df, du, ifconfig, netstat, system_profiler
+- Reading files: cat, less, head, tail, grep (read-only)
+- Querying system: osascript with "get" or "output", date, uname, whoami
+
+WRITE OPERATIONS (🔴 RED - requires approval):
+- Modifying files: >, >>, echo >, tee, sed -i, vim, nano (with write)
+- Changing state: set, chmod, chown, mount, unmount, kill, restart
+- Creating/deleting: mkdir, rmdir, rm, touch, cp, mv (if modifying)
+- Installing: install, apt-get, brew install, pip install
+- System changes: sudo (unless clearly read-only), systemctl start/stop
+
+CRITICAL: Understand semantic meaning. "osascript -e 'output volume of (get volume settings)'" is READ (getting info).
+"osascript -e 'set volume 50'" is WRITE (changing state).
+
+Respond ONLY with JSON:
+{
+    "operation_type": "read|write",
+    "risk_level": "green|red",
+    "reasoning": "brief explanation"
+}"""),
+                    HumanMessage(content=f"Analyze this command: {command}")
+                ])
+                
+                try:
+                    import json
+                    import re
+                    
+                    # Use LLM to analyze command semantically
+                    chain = prompt | llm
+                    response = chain.invoke({})
+                    response_text = response.content.strip()
+                    
+                    # Extract JSON from response (handle markdown code blocks)
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(1)
+                    else:
+                        # Try to find JSON object directly
+                        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        if json_match:
+                            response_text = json_match.group(0)
+                    
+                    analysis = json.loads(response_text)
+                    operation_type = analysis.get("operation_type", "write").lower()
+                    
+                    if operation_type == "read":
+                        # 🟢 GREEN: Read-only operation - NO approval needed
+                        print(f"  🟢 Auto-approving read-only operation")
+                        return {
+                            "allowed": True,
+                            "risk_level": RiskLevel.GREEN.value,
+                            "requires_approval": False,
+                            "message": f"Read-only operation detected - auto-approved (GREEN). {analysis.get('reasoning', '')}"
+                        }
+                    else:
+                        print(f"  🔴 Write operation detected - requires approval")
+                    # If write operation, continue to default RED behavior
+                except json.JSONDecodeError:
+                    # JSON parsing failed - continue to default RED behavior (requires approval)
+                    pass
+                except Exception:
+                    # LLM analysis failed - continue to default RED behavior (requires approval)
+                    pass
+        
+        # If we get here, run_shell wasn't detected as read-only, so it requires approval
+        # This means either:
+        # 1. No command in context
+        # 2. LLM analysis failed
+        # 3. LLM determined it's a write operation
+        
         if tool_name not in self.tool_registry:
             # Special handling for self_modify_codebase
             if tool_name == "self_modify_codebase":

@@ -17,13 +17,14 @@ from mcp_servers.homeassistant_tools import (
     init_ha_client
 )
 from mcp_servers.web_search_tools import web_search
-from output_sanitizer import get_sanitizer
+from output_sanitizer import get_sanitizer, SanitizationResult
 from emergency_stop import get_emergency_stop, EmergencyStopException
 from llm_provider import LLMProvider, create_llm_provider
 from cost_tracker import CostTracker, get_cost_tracker, CostLimit
 from context_manager import ContextManager, get_context_manager
 from dynamic_tool_registry import get_tool_registry, DynamicToolRegistry
 import asyncio
+import re
 
 
 class BaseSubAgent(ABC):
@@ -79,121 +80,53 @@ class BaseSubAgent(ABC):
         self.execution_history = []
         self.sanitizer = get_sanitizer()
         self.emergency_stop = get_emergency_stop()
-        
+    
     def _get_available_tools(self) -> Dict[str, Any]:
         """Get all available tools this agent can use (from dynamic registry)."""
         tools = {}
         
-        # Get tools from dynamic registry
-        for tool_name in self.tool_registry_instance.list_tools():
-            tool_metadata = self.tool_registry_instance.get_tool(tool_name)
-            if tool_metadata:
-                tools[tool_name] = tool_metadata.function
+        # Base tools
+        tools["write_file"] = write_file
+        tools["run_shell"] = run_shell
         
-        # Also include hardcoded tools for backward compatibility
-        # (These should eventually be moved to tool registry)
-        hardcoded_tools = {
-            "write_file": write_file,
-            "run_shell": run_shell,
-            "docker_ps": docker_ps,
-            "docker_logs": docker_logs,
-            "docker_exec": docker_exec,
-            "docker_restart": docker_restart,
-            "docker_inspect": docker_inspect,
-            "docker_compose_up": docker_compose_up,
-            "ha_get_state": ha_get_state,
-            "ha_call_service": ha_call_service,
-            "ha_get_logs": ha_get_logs,
-            "ha_search_logs": ha_search_logs,
-            "ha_list_integrations": ha_list_integrations,
-            "ha_get_config": ha_get_config,
-            "web_search": web_search,
-        }
+        # Docker tools
+        tools["docker_ps"] = docker_ps
+        tools["docker_logs"] = docker_logs
+        tools["docker_exec"] = docker_exec
+        tools["docker_restart"] = docker_restart
+        tools["docker_inspect"] = docker_inspect
+        tools["docker_compose_up"] = docker_compose_up
         
-        # Merge (registry tools take precedence)
-        tools.update(hardcoded_tools)
+        # Home Assistant tools
+        tools["ha_get_state"] = ha_get_state
+        tools["ha_call_service"] = ha_call_service
+        tools["ha_get_logs"] = ha_get_logs
+        tools["ha_search_logs"] = ha_search_logs
+        tools["ha_list_integrations"] = ha_list_integrations
+        tools["ha_get_config"] = ha_get_config
+        
+        # Web search
+        tools["web_search"] = web_search
+        
+        # Add tools from dynamic registry
+        for tool_name, tool_func in self.tool_registry_instance.tools.items():
+            if tool_name not in tools:
+                tools[tool_name] = tool_func
         
         return tools
     
-    def _create_prompt(self, task: str, context: Optional[Dict] = None) -> ChatPromptTemplate:
-        """Create prompt with system instructions and available tools."""
-        tools_description = self._describe_tools()
-        
-        prompt_content = f"""{self.system_prompt}
-
-AVAILABLE TOOLS:
-{tools_description}
-
-CRITICAL AUTONOMOUS RULES:
-1. You MUST proceed autonomously - do NOT ask for permission or clarification
-2. Use tools directly - call them with appropriate parameters
-3. If a tool fails, try alternative approaches automatically
-4. Only ask human for help if:
-   - Authentication credentials are missing and required
-   - Task is genuinely impossible without human input
-   - Major architectural decision needed (e.g., "redesign everything")
-
-WEB SEARCH RULES:
-- Your knowledge cutoff is March 2024
-- If the user asks about events, software versions, or news after this date, YOU MUST use web_search tool
-- Do NOT guess or hallucinate information beyond your knowledge cutoff
-- Use web_search for: current events, latest software releases, recent documentation, breaking news
-- Do NOT use web_search for: information you already know, general knowledge, code examples
-
-WORKFLOW:
-1. Analyze the task
-2. Plan your approach (mentally, no need to output)
-3. Execute using tools
-4. Verify results
-5. Report success or retry with different approach
-
-Task: {task}
-"""
-        
-        if context:
-            prompt_content += f"\nContext: {json.dumps(context, indent=2)}"
-        
-        return ChatPromptTemplate.from_messages([
-            SystemMessage(content=prompt_content),
-            MessagesPlaceholder(variable_name="messages")
-        ])
-    
-    def _prune_messages(self, messages: List[BaseMessage]) -> List[BaseMessage]:
-        """Prune messages to stay within context limits."""
-        return self.context_manager.prune_context(messages)
-    
-    async def _invoke_llm_async(self, messages: List[BaseMessage]) -> str:
-        """Invoke LLM asynchronously with cost tracking.
-        
-        Args:
-            messages: List of messages to send
-            
-        Returns:
-            Response content as string
-        """
-        # Check cost limits before calling
+    def _call_llm(self, messages: List[BaseMessage]) -> str:
+        """Call LLM with messages and track costs."""
+        # Check cost limits before call
         limit_check = self.cost_tracker.check_limits()
-        if not limit_check["allowed"]:
-            raise Exception(f"Cost limit exceeded: {limit_check['reason']}")
-        
-        # Prune context if needed
-        pruned_messages = self._prune_messages(messages)
+        if limit_check.get("blocked"):
+            raise CostLimit(f"Cost limit exceeded: {limit_check.get('message')}")
         
         # Estimate input tokens
-        input_text = " ".join(
-            msg.content if hasattr(msg, 'content') else str(msg)
-            for msg in pruned_messages
-        )
-        input_tokens = self.llm_provider.estimate_tokens(input_text)
+        input_tokens = sum(self.llm_provider.estimate_tokens(str(msg)) for msg in messages)
         
-        # Invoke LLM
-        try:
-            response = await asyncio.wait_for(
-                self.llm_provider.ainvoke(pruned_messages),
-                timeout=60.0  # 60 second timeout
-            )
-        except asyncio.TimeoutError:
-            raise Exception("LLM call timed out after 60 seconds")
+        # Call LLM
+        response = self.llm_provider.generate(messages)
         
         # Estimate output tokens
         output_tokens = self.llm_provider.estimate_tokens(response)
@@ -219,7 +152,7 @@ Task: {task}
         
         # File tools
         descriptions.append("write_file(path, content) - Create/overwrite a file")
-        descriptions.append("run_shell(command, timeout=30) - Execute shell command")
+        descriptions.append("run_shell(command) - Execute shell command")
         
         # Docker tools
         descriptions.append("docker_ps() - List all containers")
@@ -242,71 +175,156 @@ Task: {task}
         
         return "\n".join(f"  - {desc}" for desc in descriptions)
     
+    def _parse_tool_args(self, args_str: str) -> tuple[List, Dict[str, Any]]:
+        """Parse tool arguments, properly handling quoted strings with nested quotes."""
+        args = []
+        kwargs = {}
+        
+        if not args_str or not args_str.strip():
+            return args, kwargs
+        
+        args_str = args_str.strip()
+        
+        # Method 1: Parse key=value pairs character by character to handle nested quotes
+        # This handles cases like: command="osascript -e 'output volume of (get volume settings)'"
+        i = 0
+        while i < len(args_str):
+            # Skip whitespace
+            while i < len(args_str) and args_str[i] in ' \t\n,':
+                i += 1
+            if i >= len(args_str):
+                break
+            
+            # Find key
+            key_start = i
+            while i < len(args_str) and args_str[i] not in '= \t':
+                i += 1
+            key = args_str[key_start:i].strip()
+            
+            if not key:
+                break
+            
+            # Skip to =
+            while i < len(args_str) and args_str[i] in ' \t':
+                i += 1
+            if i >= len(args_str) or args_str[i] != '=':
+                # Positional argument
+                args.append(key)
+                continue
+            i += 1  # Skip =
+            
+            # Skip whitespace after =
+            while i < len(args_str) and args_str[i] in ' \t':
+                i += 1
+            if i >= len(args_str):
+                kwargs[key] = ""
+                break
+            
+            # Parse value - handle quotes properly
+            value = ""
+            if args_str[i] in '"\'':
+                # Quoted value - find matching closing quote
+                quote_char = args_str[i]
+                i += 1
+                value_start = i
+                escaped = False
+                while i < len(args_str):
+                    if escaped:
+                        escaped = False
+                    elif args_str[i] == '\\':
+                        escaped = True
+                    elif args_str[i] == quote_char:
+                        # Found closing quote
+                        value = args_str[value_start:i]
+                        i += 1
+                        break
+                    i += 1
+                else:
+                    # No closing quote found, take rest of string
+                    value = args_str[value_start:]
+            else:
+                # Unquoted value - read until comma or end
+                value_start = i
+                while i < len(args_str) and args_str[i] not in ',':
+                    i += 1
+                value = args_str[value_start:i].strip()
+            
+            kwargs[key] = value
+        
+        return args, kwargs
+    
     def _extract_tool_calls(self, response: str) -> List[Dict[str, Any]]:
         """Extract tool calls from LLM response."""
-        import re
-        import json
-        
         tool_calls = []
-        
-        # Look for tool call patterns: tool_name(arg1=value1, arg2=value2)
-        # Also look for tool_name() with no args
-        pattern = r'(\w+)\(([^)]*)\)'
-        matches = re.findall(pattern, response)
-        
-        # Also check for standalone tool names that are known tools
         known_tools = list(self.tools.keys())
-        for tool_name in known_tools:
-            # Look for patterns like "I'll call docker_ps" or "calling docker_ps" or just "docker_ps()"
-            if re.search(rf'\b{re.escape(tool_name)}\s*\(', response, re.IGNORECASE):
-                # Already captured by pattern above
-                continue
-            # Check for explicit mentions like "I need to use docker_ps" - be more aggressive
-            if re.search(rf'(call|use|execute|run)\s+{re.escape(tool_name)}', response, re.IGNORECASE):
-                # If it's mentioned in context of calling, add it
-                if tool_name not in [tc["tool"] for tc in tool_calls]:
-                    tool_calls.append({
-                        "tool": tool_name,
-                        "args": [],
-                        "kwargs": {}
-                    })
         
-        for tool_name, args_str in matches:
-            # Only process if it's a known tool
-            if tool_name not in self.tools:
-                continue
+        # Method 1: Find tool calls with balanced parentheses
+        for tool_name in known_tools:
+            # Find all occurrences of tool_name(
+            pattern = re.escape(tool_name) + r'\s*\('
+            for match in re.finditer(pattern, response):
+                start = match.end()  # Position after the opening paren
                 
-            # Parse arguments
-            args = []
-            kwargs = {}
-            
-            # Simple parsing - can be enhanced
-            if args_str:
-                # Try to parse as JSON-like
-                try:
-                    # Handle key=value pairs
-                    for part in args_str.split(','):
-                        part = part.strip()
-                        if not part:
-                            continue
-                        if '=' in part:
-                            key, value = part.split('=', 1)
-                            key = key.strip()
-                            value = value.strip().strip('"').strip("'")
-                            kwargs[key] = value
-                        else:
-                            # Positional argument
-                            args.append(part.strip().strip('"').strip("'"))
-                except:
-                    pass
-            
-            tool_calls.append({
-                "tool": tool_name,
-                "args": args,
-                "kwargs": kwargs
-            })
+                # Find the matching closing paren, accounting for nesting and quotes
+                depth = 1
+                in_single_quote = False
+                in_double_quote = False
+                escaped = False
+                i = start
+                
+                while i < len(response) and depth > 0:
+                    char = response[i]
+                    
+                    if escaped:
+                        escaped = False
+                    elif char == '\\':
+                        escaped = True
+                    elif char == '"' and not in_single_quote:
+                        in_double_quote = not in_double_quote
+                    elif char == "'" and not in_double_quote:
+                        in_single_quote = not in_single_quote
+                    elif not in_single_quote and not in_double_quote:
+                        if char == '(':
+                            depth += 1
+                        elif char == ')':
+                            depth -= 1
+                    i += 1
+                
+                if depth == 0:
+                    # Found matching paren
+                    args_str = response[start:i-1]  # Exclude the closing paren
+                    args, kwargs = self._parse_tool_args(args_str)
+                    
+                    # Avoid duplicates
+                    if tool_name not in [tc["tool"] for tc in tool_calls]:
+                        tool_calls.append({
+                            "tool": tool_name,
+                            "args": args,
+                            "kwargs": kwargs
+                        })
         
         return tool_calls
+    
+    def _create_prompt(self, task: str, context: Optional[Dict] = None) -> ChatPromptTemplate:
+        """Create a prompt template for the agent."""
+        tools_description = self._describe_tools()
+        
+        system_message = f"""{self.system_prompt}
+
+AVAILABLE TOOLS:
+{tools_description}
+
+INSTRUCTIONS:
+- Analyze the task and use the appropriate tools
+- Call tools using the format: tool_name(param1=value1, param2=value2)
+- For commands with spaces or special characters, use quotes: run_shell(command="command with spaces")
+- Return results clearly and concisely"""
+        
+        return ChatPromptTemplate.from_messages([
+            SystemMessage(content=system_message),
+            MessagesPlaceholder(variable_name="messages"),
+            HumanMessage(content=task)
+        ])
     
     @abstractmethod
     def execute(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
@@ -321,10 +339,25 @@ Task: {task}
         # Check governance before execution
         from governance import get_governance
         governance = get_governance()
-        context = kwargs.get("context", {}) or {}
+        
+        # Extract context - ensure we have a dict to modify
+        context = kwargs.pop("context", {}) or {}
         context.setdefault("environment", getattr(self, "environment", "production"))
         
-        permission = governance.check_permission(tool_name, context)
+        # For run_shell, ALWAYS pass command in context so governance can check if it's safe
+        if tool_name == "run_shell":
+            command = kwargs.get("command", "")
+            # CRITICAL: Always add command to context, even if empty (for debugging)
+            context["command"] = command
+            context["kwargs"] = kwargs.copy()  # Also pass full kwargs (copy to avoid mutation)
+        
+        # Check if there's an approved approval_id in context (from previous approval)
+        approved_approval_id = context.get("approved_approval_id")
+        if approved_approval_id and governance.is_approved(approved_approval_id):
+            # Use existing approval
+            permission = {"allowed": True, "risk_level": "green"}
+        else:
+            permission = governance.check_permission(tool_name, context)
         
         if not permission["allowed"]:
             # Tool requires approval
@@ -353,46 +386,60 @@ Task: {task}
                 "message": f"Tool '{tool_name}' not available"
             }
         
+        # Execute the tool
         try:
-            tool = self.tools[tool_name]
-            result = tool(*args, **kwargs)
+            tool_func = self.tools[tool_name]
+            result = tool_func(*args, **kwargs)
             
-            # Sanitize result before returning
+            # Handle parameter errors - auto-fix and retry
+            if isinstance(result, dict) and result.get("status") == "error":
+                error_msg = result.get("message", "")
+                if "unexpected keyword argument" in error_msg or "got an unexpected keyword argument" in error_msg:
+                    # Extract the invalid parameter name
+                    param_match = re.search(r"unexpected keyword argument ['\"]([\w_]+)['\"]", error_msg)
+                    if param_match:
+                        invalid_param = param_match.group(1)
+                        # Remove the invalid parameter from kwargs and retry
+                        new_kwargs = {k: v for k, v in kwargs.items() if k != invalid_param}
+                        # Mark as fixed for logging/tracking
+                        new_kwargs["context"] = new_kwargs.get("context", {})
+                        new_kwargs["context"]["parameter_error_fixed"] = True
+                        new_kwargs["context"]["fixed_param"] = invalid_param
+                        return self._execute_tool(tool_name, *args, **new_kwargs)  # Recursive retry
+            
+            # Sanitize result
+            # Handle dict results with sanitize_dict, string results with sanitize
             if isinstance(result, dict):
-                # Check for secrets before sanitizing
-                result_str = json.dumps(result, default=str)
-                if self.sanitizer.has_secrets(result_str):
-                    # Log warning but don't block execution
-                    print(f"  ⚠️  WARNING: Potential secrets detected in {tool_name} output - sanitizing")
-                
-                # Sanitize the result
-                sanitized_result = self.sanitizer.sanitize_dict(result, context=tool_name)
-                return sanitized_result
-            elif isinstance(result, str):
-                # Sanitize string result
-                sanitization = self.sanitizer.sanitize(result, context=tool_name)
-                if sanitization.redactions:
-                    print(f"  ⚠️  Sanitized {tool_name} output: {', '.join(sanitization.redactions)}")
-                return sanitization.sanitized_content
+                sanitized_result = self.sanitizer.sanitize_dict(result, context=f"tool_{tool_name}")
+                has_secrets = any(
+                    self.sanitizer.has_secrets(str(v)) for v in result.values() 
+                    if isinstance(v, (str, dict))
+                )
+                # For dict results, preserve the structure but with sanitized values
+                # This allows agents to access fields like stdout, stderr, etc.
+                return {
+                    "status": result.get("status", "success"),
+                    **sanitized_result,  # Spread sanitized fields (stdout, stderr, exit_code, etc.)
+                    "has_secrets": has_secrets,
+                    "original": result  # Keep original for debugging
+                }
             else:
-                # For other types, convert to string and sanitize
-                result_str = str(result)
-                sanitization = self.sanitizer.sanitize(result_str, context=tool_name)
-                return sanitization.sanitized_content
+                sanitized_obj = self.sanitizer.sanitize(str(result), context=f"tool_{tool_name}")
+                sanitized_result = sanitized_obj.sanitized_content
+                has_secrets = len(sanitized_obj.redactions) > 0
                 
-        except EmergencyStopException:
-            raise  # Re-raise emergency stop
+                return {
+                    "status": "success",
+                    "result": sanitized_result,
+                    "has_secrets": has_secrets,
+                    "original": result
+                }
         except Exception as e:
+            error_msg = str(e)
+            sanitized_error = self.sanitizer.sanitize(error_msg, context=f"tool_{tool_name}_error")
+            
             return {
                 "status": "error",
-                "message": str(e)
+                "message": sanitized_error.sanitized_content if isinstance(sanitized_error, SanitizationResult) else str(sanitized_error),
+                "original_error": error_msg
             }
-    
-    def _needs_human(self, reason: str) -> Dict[str, Any]:
-        """Signal that human input is needed."""
-        return {
-            "status": "needs_human",
-            "reason": reason,
-            "agent": self.agent_name
-        }
-

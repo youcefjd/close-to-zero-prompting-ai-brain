@@ -136,7 +136,7 @@ class DynamicToolRegistry:
         ]
     
     def discover_tools(self, directory: Optional[Path] = None) -> List[str]:
-        """Discover tools in a directory.
+        """Discover tools in a directory, excluding certain files.
         
         Args:
             directory: Directory to search (uses discovery_paths if None)
@@ -144,6 +144,9 @@ class DynamicToolRegistry:
         Returns:
             List of discovered tool names
         """
+        # Files to exclude from tool discovery (CLI scripts, not tools)
+        excluded_files = {"approve.py", "__init__.py"}
+        
         discovered = []
         
         if directory:
@@ -160,11 +163,15 @@ class DynamicToolRegistry:
                 if py_file.name.startswith("_"):
                     continue
                 
+                # Skip excluded files
+                if py_file.name in excluded_files:
+                    continue
+                
                 try:
                     tools_in_file = self._discover_tools_in_file(py_file)
                     discovered.extend(tools_in_file)
                 except Exception as e:
-                    print(f"Warning: Could not discover tools in {py_file}: {e}")
+                    print(f"Error registering tool from {py_file.name}: {e}")
         
         return discovered
     

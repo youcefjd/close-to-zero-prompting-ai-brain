@@ -75,9 +75,16 @@ class AutonomousOrchestrator:
         # Step 3: Execute with primary agent
         
         if primary_agent_name not in self.agents:
-            # Fallback to general agent or create on-the-fly
-            print(f"⚠️  Agent '{primary_agent_name}' not available, using fallback")
-            return self._execute_fallback(task, context)
+            # If routing was to "system" for a consultation, redirect to "consulting"
+            if primary_agent_name == "system" and routing.get("task_type") == "consultation":
+                print(f"⚠️  Agent 'system' not available for consultation - redirecting to 'consulting'")
+                primary_agent_name = "consulting"
+                if primary_agent_name not in self.agents:
+                    print(f"⚠️  Agent 'consulting' also not available, using fallback")
+                    return self._execute_fallback(task, context)
+            else:
+                print(f"⚠️  Agent '{primary_agent_name}' not available, using fallback")
+                return self._execute_fallback(task, context)
         
         agent = self.agents[primary_agent_name]
         
@@ -285,7 +292,16 @@ class AutonomousOrchestrator:
     
     def _execute_fallback(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Fallback execution when specialized agent not available."""
-        # Use the base LangGraph agent as fallback
+        # First, try to use ConsultingAgent if available (it handles queries well)
+        if "consulting" in self.agents:
+            print(f"  💡 Using ConsultingAgent as fallback")
+            agent = self.agents["consulting"]
+            try:
+                return agent.execute(task, context)
+            except Exception as e:
+                print(f"  ⚠️  ConsultingAgent fallback failed: {e}")
+        
+        # Otherwise, use the base LangGraph agent as fallback
         try:
             from agent_enhanced import create_agent_graph, AgentState
             from langchain_core.messages import HumanMessage

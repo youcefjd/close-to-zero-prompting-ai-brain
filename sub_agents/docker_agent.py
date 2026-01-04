@@ -86,7 +86,6 @@ You work AUTONOMOUSLY - analyze the task, use Docker tools, and complete it with
                 if any(keyword in task_lower for keyword in ["list", "show", "display", "get"]) and \
                    any(keyword in task_lower for keyword in ["container", "docker"]):
                     # Force docker_ps call
-                    print(f"  💡 No tool call detected, but task requires container listing - calling docker_ps()")
                     tool_calls = [{"tool": "docker_ps", "args": [], "kwargs": {}}]
             
             if not tool_calls:
@@ -123,7 +122,6 @@ You work AUTONOMOUSLY - analyze the task, use Docker tools, and complete it with
                     result_str = json.dumps(result, default=str)
                     if self.sanitizer.has_secrets(result_str):
                         # Re-sanitize if somehow secrets got through
-                        print(f"  ⚠️  WARNING: Secrets detected in tool results - re-sanitizing")
                         result = self.sanitizer.sanitize_dict(result, context="tool_results")
                     sanitized_results.append(result)
                 else:
@@ -132,7 +130,6 @@ You work AUTONOMOUSLY - analyze the task, use Docker tools, and complete it with
             # Final check before adding to context
             results_str = json.dumps(sanitized_results, indent=2, default=str)
             if self.sanitizer.has_secrets(results_str):
-                print(f"  ⚠️  WARNING: Secrets still detected after sanitization - applying additional sanitization")
                 sanitization = self.sanitizer.sanitize(results_str, context="final_context")
                 results_str = sanitization.sanitized_content
             

@@ -2,7 +2,6 @@
 
 import sys
 from governance import get_governance
-from governed_agent import GovernedAutonomousAgent
 import json
 
 
@@ -65,13 +64,8 @@ def approve(approval_id: str):
     if response == "yes" or response == "y":
         result = governance.approve(approval_id, approver="human")
         if result["status"] == "approved":
-            print(f"\n✅ Approved! Executing plan...\n")
-            
-            # Execute the plan
-            agent = GovernedAutonomousAgent(environment=request.get("context", {}).get("environment", "production"))
-            plan = change_plan.get("plan")
-            if plan:
-                agent._execute_plan(plan, approval_id)
+            print(f"\n✅ Approved! The system will re-execute the request with this approval.\n")
+            print(f"💡 Re-run your original command to execute with the approved permission.\n")
         else:
             print(f"❌ Approval failed: {result.get('message')}")
     else:

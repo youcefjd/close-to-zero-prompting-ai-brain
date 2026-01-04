@@ -79,20 +79,40 @@ def run_shell(command: str, cwd: str = None) -> Dict[str, Any]:
         cmd_parts = shlex.split(command)
         
         # Execute the command
+        # Use text=False to handle binary output, then decode safely
         result = subprocess.run(
             cmd_parts,
             cwd=cwd,
             capture_output=True,
-            text=True,
+            text=False,  # Don't auto-decode - handle encoding manually
             timeout=300,  # 5 minute timeout
             check=False  # Don't raise exception on non-zero exit
         )
         
+        # Safely decode output, handling encoding errors
+        def safe_decode(data: bytes) -> str:
+            if not data:
+                return ""
+            try:
+                return data.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try other common encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        return data.decode(encoding, errors='replace')
+                    except:
+                        continue
+                # Last resort: replace invalid bytes
+                return data.decode('utf-8', errors='replace')
+        
+        stdout = safe_decode(result.stdout)
+        stderr = safe_decode(result.stderr)
+        
         return {
             "status": "success" if result.returncode == 0 else "error",
             "exit_code": result.returncode,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
+            "stdout": stdout,
+            "stderr": stderr,
             "message": f"Command executed with exit code {result.returncode}"
         }
     except subprocess.TimeoutExpired:

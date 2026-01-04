@@ -1,34 +1,21 @@
 {
-  "be19051c": {
-    "approval_id": "be19051c",
-    "tool_name": "write_file",
-    "risk_level": "yellow",
+  "607e8140": {
+    "approval_id": "607e8140",
+    "tool_name": "run_shell",
+    "risk_level": "red",
     "change_plan": {
-      "file_path": "mcp_servers/DNS Resolver (Pi-hole)_tools.py",
-      "description": "Generate MCP server code for DNS Resolver (Pi-hole)",
-      "code_preview": "import subprocess\nimport re\nimport socket\nimport logging\nfrom typing import Dict, Any, Optional\n\n# Configure logging\nlogging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')\n\nclass PiHoleTool:\n    \"\"\"\n    Base class for Pi-hole tools.\n    \"\"\"\n    def __init__(self, pihole_ip: str):\n        self.pihole_ip = pihole_ip\n        self.process = None\n\n    def execute_command(self, command: str) -> Optional[str]:\n        \"\"\"\n        Executes a command on the Pi-hole an"
+      "args": [],
+      "kwargs": {}
     },
     "context": {
-      "environment": "production"
+      "environment": "production",
+      "command": "",
+      "kwargs": {}
     },
-    "timestamp": "2026-01-02T23:24:44.058447",
-    "status": "pending",
-    "approval_message": "I want to create/modify a file. Review the change plan?"
-  },
-  "054f601a": {
-    "approval_id": "054f601a",
-    "tool_name": "write_file",
-    "risk_level": "yellow",
-    "change_plan": {
-      "file_path": "mcp_servers/Log Aggregator (Graylog)_tools.py",
-      "description": "Generate MCP server code for Log Aggregator (Graylog)",
-      "code_preview": "import logging\nimport json\nfrom typing import Dict, Any, Optional\n\n# Configure logging\nlogging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')\nlogger = logging.getLogger(__name__)\n\n# Standard response format\ndef create_response(status: str, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:\n    \"\"\"Creates a standardized response dictionary.\"\"\"\n    return {\n        \"status\": status,\n        \"message\": message,\n        \"data\": dat"
-    },
-    "context": {
-      "environment": "production"
-    },
-    "timestamp": "2026-01-02T23:25:34.944241",
-    "status": "pending",
-    "approval_message": "I want to create/modify a file. Review the change plan?"
+    "timestamp": "2026-01-04T14:18:09.826178",
+    "status": "approved",
+    "approval_message": "\u26a0\ufe0f CRITICAL: I want to execute a shell command. Review carefully?",
+    "approver": "human",
+    "approved_at": "2026-01-04T14:18:12.307670"
   }
 }
