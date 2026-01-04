@@ -27,6 +27,7 @@ The system is designed to:
 - [Getting Started](#getting-started)
 - [Documentation](#documentation)
 - [Usage Examples](#usage-examples)
+- [Conversation Mode](#conversation-mode)
 - [Configuration](#configuration)
 - [Best Practices](#best-practices)
 - [Troubleshooting](#troubleshooting)
@@ -96,6 +97,49 @@ Access current information:
 - Tavily AI or Serper.dev integration
 - Knowledge cutoff awareness
 - Privacy filters for sensitive queries
+
+### 💬 **Conversation Mode with Context Preservation**
+Natural follow-up conversations:
+- Context preserved between requests
+- Follow-up questions reference previous answers
+- Conversation history passed to agents
+- `clear` command to reset context
+
+### 🧑‍💻 **Human-in-the-Loop Clarification**
+Interactive clarification when needed:
+- System asks targeted questions when ambiguous
+- User responds inline in terminal
+- Clarification automatically incorporated
+- No need to restart or re-prompt
+
+### 🔧 **Self-Healing System**
+Automatic error detection and recovery:
+- Detects command failures and errors
+- Analyzes root cause using LLM
+- Proposes and validates fixes
+- Self-corrects invalid parameters
+- Learns from past failures
+
+### 🖥️ **OS-Aware Execution**
+Automatic operating system detection:
+- Detects macOS, Linux, Windows
+- Uses OS-specific commands (e.g., `pmset` vs `upower`)
+- Provides OS context to LLM
+- Prevents cross-platform command errors
+
+### 📊 **Smart Output Formatting**
+Clean, user-friendly responses:
+- Transforms verbose technical output
+- Extracts only relevant information
+- Removes system internals and noise
+- Concise, human-readable answers
+
+### ✅ **Interactive Approvals**
+Inline approval workflow:
+- Prompts for approval in terminal
+- Shows command details and risk level
+- Approve with `yes`, reject with `no`
+- No separate approval CLI needed
 
 ---
 
@@ -706,7 +750,70 @@ web_search()  # Search the web (Tavily or Serper)
 
 ---
 
-### 13. **Emergency Stop** (`emergency_stop.py`)
+### 13. **Self-Healing System** (`self_healing.py`)
+
+**Automatic error detection, analysis, and recovery.**
+
+**Features**:
+- Detects codebase errors (syntax, import, runtime)
+- Analyzes root cause using LLM
+- Proposes validated fixes
+- Applies fixes with rollback capability
+- Learns from past errors to prevent recurrence
+
+**Error Types Handled**:
+
+| Error Type | Detection | Action |
+|------------|-----------|--------|
+| `SyntaxError` | Import failure | Analyze and fix syntax |
+| `ImportError` | Missing module | Suggest pip install |
+| `TypeError` | Invalid parameter | Remove/fix parameter |
+| `[Errno 2]` | Command not found | Use OS-specific alternative |
+| `Exit code != 0` | Command failure | Analyze stderr, retry |
+
+**Self-Healing Flow**:
+```
+Error Detected → Root Cause Analysis → Propose Fix → 
+Validate Fix → Governance Check → Apply Fix → Verify
+```
+
+**Example: Invalid Parameter**:
+```python
+# LLM calls: run_shell(command="date", timeout=30)
+# Error: run_shell() got an unexpected keyword argument 'timeout'
+
+# Self-healing:
+# 1. Detects TypeError with "unexpected keyword argument"
+# 2. Extracts invalid parameter: "timeout"
+# 3. Retries without: run_shell(command="date")
+# 4. Success!
+```
+
+**Example: OS-Specific Command**:
+```python
+# On macOS, LLM tries: run_shell(command="amixer get Master")
+# Error: [Errno 2] No such file or directory: 'amixer'
+
+# Self-healing:
+# 1. Detects command not found error
+# 2. Identifies: 'amixer' is Linux-only
+# 3. OS detection: macOS
+# 4. Retries with: osascript -e 'output volume of (get volume settings)'
+# 5. Success!
+```
+
+**Configuration**:
+```python
+# Maximum healing attempts per error
+MAX_HEALING_ATTEMPTS = 3
+
+# Healing requires approval for code changes (🔴 Red)
+# Auto-approved for parameter fixes (🟢 Green)
+```
+
+---
+
+### 14. **Emergency Stop** (`emergency_stop.py`)
 
 **Global kill switch for all operations.**
 
@@ -721,7 +828,80 @@ python emergency_stop.py
 
 ---
 
-### 14. **Cost Tracking** (`cost_tracker.py`)
+### 15. **OS Detection** (in `consulting_agent.py`)
+
+**Automatic operating system detection for command selection.**
+
+**Detected Systems**:
+- macOS (Darwin)
+- Linux
+- Windows
+
+**OS-Specific Commands**:
+
+| Query | macOS | Linux | Windows |
+|-------|-------|-------|---------|
+| Volume | `osascript -e 'output volume of (get volume settings)'` | `amixer get Master` | PowerShell |
+| Battery | `pmset -g batt` | `upower -i ...` | `powercfg /batteryreport` |
+| Time | `date` | `date` | `Get-Date` |
+| Disk | `df -h` | `df -h` | `Get-WmiObject` |
+| Memory | `sysctl + top` | `free -h` | `Get-WmiObject` |
+
+**How It Works**:
+```python
+import platform
+system = platform.system().lower()  # 'darwin', 'linux', 'windows'
+```
+
+**Usage in Agent**:
+```
+System Prompt includes:
+"CURRENT SYSTEM: macOS"
+"For volume on macOS: osascript -e '...'"
+```
+
+---
+
+### 16. **Output Formatting** (in `consulting_agent.py`)
+
+**LLM-powered cleanup of raw command output.**
+
+**Problem**: Raw command output is often verbose and technical:
+```
+Now playing:
+    0:CoreAudio 0 (Built-in Output), muted:0, volume:0.500000
+    HDMI 0
+```
+
+**Solution**: Format to user-friendly answer:
+```
+Your volume is set to 50%.
+```
+
+**Features**:
+- Extracts only relevant information
+- Removes technical noise (hex values, PIDs, etc.)
+- Formats as concise, natural language
+- Falls back to truncation if formatting fails
+
+**Formatting Rules**:
+1. Be concise (one line if possible)
+2. Be direct (no filler)
+3. Be accurate (match the query)
+4. Remove noise (system internals)
+5. Format clearly (human-readable)
+
+**Example Transformations**:
+
+| Query | Raw Output | Formatted |
+|-------|------------|-----------|
+| "battery status" | `Now drawing from 'AC Power'... 85%; charging` | Battery at 85%, charging |
+| "what time is it" | `Sun Jan  4 14:30:00 PST 2026` | It's 2:30 PM PST |
+| "volume level" | `output volume:50` | Volume is set to 50% |
+
+---
+
+### 17. **Cost Tracking** (`cost_tracker.py`)
 
 **Monitor token usage and API costs.**
 
@@ -733,7 +913,7 @@ python emergency_stop.py
 
 ---
 
-### 15. **Context Management** (`context_manager.py`)
+### 18. **Context Management** (`context_manager.py`)
 
 **Prune messages to fit token limits.**
 
@@ -745,7 +925,7 @@ python emergency_stop.py
 
 ---
 
-### 16. **Output Sanitization** (`output_sanitizer.py`)
+### 19. **Output Sanitization** (`output_sanitizer.py`)
 
 **Remove sensitive information from logs.**
 
@@ -857,7 +1037,189 @@ Result: Complete ad-blocking system deployed
 
 ---
 
-### Example 4: Docker Operations
+### Example 4: Conversation Mode with Follow-ups
+
+```bash
+python meta_agent.py
+```
+
+**Interactive Session**:
+```
+======================================================================
+  💬 CONVERSATION MODE - Context is preserved between requests
+  💡 Type 'exit' or 'quit' to end, 'clear' to reset context
+======================================================================
+
+Enter request:
+  > what's my macbook battery status?
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Battery is at 85%, charging, connected to AC power.
+
+----------------------------------------------------------------------
+  💬 Follow-up (context preserved) or 'exit' to quit:
+  > and what about the volume level?
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Your volume is set to 50%.
+
+----------------------------------------------------------------------
+  💬 Follow-up (context preserved) or 'exit' to quit:
+  > clear
+
+  🧹 Context cleared. Starting fresh.
+
+  Enter new request:
+  > exit
+  👋 Goodbye!
+```
+
+**What Happens**:
+1. System enters conversation mode (no command-line arguments)
+2. Each follow-up preserves context from previous exchanges
+3. `clear` resets context for fresh start
+4. `exit` or `quit` ends the session
+
+---
+
+### Example 5: Human-in-the-Loop Clarification
+
+```bash
+python meta_agent.py "help me decide between EMR options"
+```
+
+**With Clarification**:
+```
+──────────────────────────────────────────────────────────────────────
+  Clarification Needed
+──────────────────────────────────────────────────────────────────────
+  ❓ Could you clarify what you mean by 'EMR options'? 
+     Are you referring to:
+     - EMR ACK (AWS Controllers for Kubernetes)
+     - Native EMR API
+     - EMR Serverless
+     - EMR on EKS?
+
+  💬 Your response: I mean ACK vs native EMR API for managing clusters
+
+  🔄 Processing with clarification...
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Here's my analysis of EMR ACK vs Native EMR API:
+  
+  **EMR ACK (AWS Controllers for Kubernetes)**:
+  - Kubernetes-native approach
+  - Uses CRDs for cluster management
+  - Better GitOps integration
+  ...
+```
+
+**What Happens**:
+1. System detects ambiguous request
+2. Returns `needs_human` status with clarifying question
+3. User provides clarification inline
+4. System re-processes with clarification context
+5. Returns refined answer
+
+---
+
+### Example 6: Interactive Approval
+
+```bash
+python meta_agent.py "restart the nginx container"
+```
+
+**With Approval Prompt**:
+```
+──────────────────────────────────────────────────────────────────────
+  Approval Required
+──────────────────────────────────────────────────────────────────────
+  ⏸️  Tool 'docker_restart' requires approval
+  📋 Approval ID: a1b2c3d4
+  📝 Command: docker restart nginx
+  ⚠️  Risk Level: red
+  💬 Message: Container restart will cause brief service interruption
+
+  ⚠️  Approve this request? (yes/no): yes
+
+  ✅ Approved! Continuing execution...
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Container 'nginx' restarted successfully.
+```
+
+**What Happens**:
+1. System detects 🔴 Red risk operation
+2. Shows approval details inline
+3. User approves or rejects in terminal
+4. Continues execution on approval
+
+---
+
+### Example 7: Self-Healing Error Recovery
+
+```bash
+python meta_agent.py "what's the system volume?"
+```
+
+**With Self-Healing**:
+```
+💡 ConsultingAgent: what's the system volume?
+  🔧 Calling tool: run_shell
+  ❌ Tool error: Failed to execute command: [Errno 2] No such file or directory: 'amixer'
+
+  🔄 Self-healing: Command 'amixer' failed - this is macOS, not Linux.
+     Trying OS-specific command: osascript -e 'output volume of (get volume settings)'
+
+  🔧 Calling tool: run_shell
+  ✅ Tool result: 50
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Your volume is set to 50%.
+```
+
+**What Happens**:
+1. System attempts Linux command on macOS
+2. Detects failure and analyzes error
+3. Identifies OS mismatch
+4. Self-corrects with macOS-specific command
+5. Returns clean result
+
+---
+
+### Example 8: Local System Queries
+
+```bash
+python meta_agent.py "give me the time"
+```
+
+**Output**:
+```
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  It's 2:30 PM PST on Sunday, January 4, 2026.
+```
+
+**What Happens**:
+1. Semantic understanding detects LOCAL system query
+2. Uses `run_shell` with `date` command
+3. Formats raw output into human-readable answer
+4. No approval needed (🟢 Green - read-only)
+
+---
+
+### Example 10: Docker Operations
 
 ```bash
 python meta_agent.py "Check Docker logs for errors in the last hour"
@@ -874,7 +1236,7 @@ python meta_agent.py "Check Docker logs for errors in the last hour"
 
 ---
 
-### Example 5: Development Environment
+### Example 11: Development Environment
 
 ```bash
 # Set dev environment
@@ -890,6 +1252,139 @@ python meta_agent.py "Deploy new version of my app"
 
 **In dev**: More autonomous, faster iteration
 **In production**: More cautious, requires approvals
+
+---
+
+## Conversation Mode
+
+### Overview
+
+The AI Brain supports two execution modes:
+
+1. **Single Command Mode**: Pass task as command-line argument
+2. **Conversation Mode**: Interactive session with context preservation
+
+### Starting Conversation Mode
+
+```bash
+# No arguments = conversation mode
+python meta_agent.py
+```
+
+**Output**:
+```
+======================================================================
+  💬 CONVERSATION MODE - Context is preserved between requests
+  💡 Type 'exit' or 'quit' to end, 'clear' to reset context
+======================================================================
+
+Enter request:
+  > _
+```
+
+### Context Preservation
+
+Each request and response is stored in conversation history:
+
+```python
+conversation_history = [
+    {"role": "user", "content": "what's my battery level?"},
+    {"role": "assistant", "content": "Battery is at 85%, charging."},
+    {"role": "user", "content": "and the volume?"},
+    {"role": "assistant", "content": "Volume is set to 50%."}
+]
+```
+
+**Benefits**:
+- Follow-up questions work naturally ("and what about X?")
+- Previous context informs current answers
+- Reduces repetition in multi-step tasks
+
+### Commands
+
+| Command | Action |
+|---------|--------|
+| `exit` or `quit` | End session |
+| `clear` | Reset conversation history |
+| Any other text | Execute as new task |
+
+### Example Session
+
+```
+Enter request:
+  > help me compare kubernetes deployment options
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Here are the main Kubernetes deployment options:
+  1. **Managed (EKS, GKE, AKS)**: Lowest operational overhead...
+  2. **Self-managed (kubeadm)**: Full control, higher overhead...
+  3. **Lightweight (k3s, kind)**: Great for edge/dev...
+
+----------------------------------------------------------------------
+  💬 Follow-up (context preserved) or 'exit' to quit:
+  > tell me more about EKS specifically
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Amazon EKS specifics:
+  - Control plane managed by AWS (99.95% SLA)
+  - Node groups: Managed, Self-managed, or Fargate
+  - Pricing: $0.10/hour per cluster + node costs...
+
+----------------------------------------------------------------------
+  💬 Follow-up (context preserved) or 'exit' to quit:
+  > what's the pricing comparison with GKE?
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  EKS vs GKE Pricing:
+  - EKS: $0.10/hour (~$73/month) per cluster
+  - GKE: Free for one zonal cluster, $0.10/hour for Autopilot
+  - GKE Autopilot often more cost-effective for variable workloads...
+```
+
+### Clarification Flow
+
+When the system needs clarification:
+
+```
+Enter request:
+  > set up monitoring
+
+──────────────────────────────────────────────────────────────────────
+  Clarification Needed
+──────────────────────────────────────────────────────────────────────
+  ❓ What type of monitoring would you like to set up?
+     - Application metrics (Prometheus/Grafana)
+     - Log aggregation (ELK/Loki)
+     - Infrastructure monitoring (CloudWatch/Datadog)
+     - All of the above
+
+  💬 Your response: prometheus and grafana for kubernetes
+
+  🔄 Processing with clarification...
+
+──────────────────────────────────────────────────────────────────────
+  Task Result
+──────────────────────────────────────────────────────────────────────
+  Setting up Prometheus + Grafana for Kubernetes...
+```
+
+### Single Command Mode
+
+For scripts or one-off tasks:
+
+```bash
+# Single command - exits after execution
+python meta_agent.py "what is the current time"
+
+# With verbose output
+python meta_agent.py --verbose "deploy the application"
+```
 
 ---
 
