@@ -1134,43 +1134,58 @@ def main():
                 else:
                     print(f"  ⏸️  Approval required but no approval ID found")
         
-            # Handle clarification requests (needs_human) - INTERACTIVE
-            if result.get("status") == "needs_human":
-                print_section("Clarification Needed")
+            # Handle clarification requests (needs_human) - INTERACTIVE LOOP
+            # Keep prompting until we get a non-needs_human response
+            clarification_round = 0
+            max_clarifications = 5
+            while result.get("status") == "needs_human" and clarification_round < max_clarifications:
+                clarification_round += 1
+                print_section(f"Clarification Needed (Round {clarification_round})")
                 question = result.get('question', 'Could you please clarify?')
                 print(f"  ❓ {question}")
-                print(f"\n  💬 Your response: ", end="", flush=True)
+                print(f"\n  💬 Your response (or 'skip' to proceed, 'cancel' to abort): ", end="", flush=True)
                 
                 try:
                     clarification = input().strip()
-                    if clarification and clarification.lower() not in ["exit", "quit", "cancel"]:
-                        # Add to conversation history
-                        conversation_history.append({
-                            "role": "user",
-                            "content": request,
-                            "clarification_question": question
-                        })
-                        conversation_history.append({
-                            "role": "user_clarification", 
-                            "content": clarification
-                        })
-                        
-                        # Create new request with clarification context
-                        clarified_request = f"{request}\n\nClarification: {clarification}"
-                        print(f"\n  🔄 Processing with clarification...")
-                        
-                        # Re-execute with clarification
-                        context["clarification"] = clarification
-                        context["original_request"] = request
-                        result = meta_agent.process_request(clarified_request, context=context)
-                        
-                        # Update timing
-                        elapsed = time.time() - start_time
-                        cost_summary = cost_tracker.get_summary()
-                    else:
-                        print(f"  ℹ️  Clarification skipped.")
+                    if not clarification or clarification.lower() in ["exit", "quit", "cancel"]:
+                        print(f"  ℹ️  Clarification cancelled.")
+                        break
+                    elif clarification.lower() == "skip":
+                        print(f"  ℹ️  Skipping clarification, proceeding with current info...")
+                        break
+                    
+                    # Add to conversation history
+                    conversation_history.append({
+                        "role": "user",
+                        "content": request,
+                        "clarification_question": question
+                    })
+                    conversation_history.append({
+                        "role": "user_clarification", 
+                        "content": clarification
+                    })
+                    
+                    # Build cumulative clarification context
+                    all_clarifications = context.get("all_clarifications", [])
+                    all_clarifications.append(clarification)
+                    context["all_clarifications"] = all_clarifications
+                    context["clarification"] = "\n".join(all_clarifications)
+                    context["original_request"] = request
+                    
+                    # Create new request with all clarifications
+                    clarified_request = f"{request}\n\nClarifications provided:\n" + "\n".join([f"- {c}" for c in all_clarifications])
+                    print(f"\n  🔄 Processing with clarification...")
+                    
+                    # Re-execute with clarification
+                    result = meta_agent.process_request(clarified_request, context=context)
+                    
+                    # Update timing
+                    elapsed = time.time() - start_time
+                    cost_summary = cost_tracker.get_summary()
+                    
                 except (EOFError, KeyboardInterrupt):
                     print(f"\n  ℹ️  Clarification cancelled.")
+                    break
             
             # Check for errors
             if result.get("status") == "error":

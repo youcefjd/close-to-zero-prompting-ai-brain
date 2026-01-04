@@ -19,7 +19,9 @@ def _get_os_info() -> Dict[str, str]:
             "battery_cmd": "pmset -g batt",
             "disk_cmd": "df -h",
             "memory_cmd": "vm_stat",
-            "time_cmd": "date"
+            "time_cmd": "date",
+            "running_apps_cmd": "osascript -e 'tell application \"System Events\" to get name of every process whose background only is false'",
+            "all_processes_cmd": "ps aux | head -20"
         }
     elif system == "linux":
         return {
@@ -30,7 +32,9 @@ def _get_os_info() -> Dict[str, str]:
             "battery_cmd": "upower -i /org/freedesktop/UPower/devices/battery_BAT0",
             "disk_cmd": "df -h",
             "memory_cmd": "free -h",
-            "time_cmd": "date"
+            "time_cmd": "date",
+            "running_apps_cmd": "wmctrl -l 2>/dev/null || ps aux --sort=-%mem | head -20",
+            "all_processes_cmd": "ps aux --sort=-%mem | head -20"
         }
     else:
         return {
@@ -41,7 +45,9 @@ def _get_os_info() -> Dict[str, str]:
             "battery_cmd": "unknown",
             "disk_cmd": "unknown",
             "memory_cmd": "unknown",
-            "time_cmd": "date"
+            "time_cmd": "date",
+            "running_apps_cmd": "unknown",
+            "all_processes_cmd": "unknown"
         }
 
 
@@ -71,12 +77,27 @@ PRINCIPLES:
 
 TOOL SELECTION:
 - Understand whether the query is about LOCAL system information (use run_shell) or EXTERNAL information (use web_search)
-- LOCAL queries: Information about THIS computer/system (battery, volume, disk, memory, processes, time, etc.)
-  * This is {self.os_info['os']} - use {self.os_info['os']}-specific commands
-  * For volume on macOS: osascript -e 'output volume of (get volume settings)'
-  * For battery on macOS: pmset -g batt
-  * Understand semantic meaning: "volume" ≠ "battery", "disk" ≠ "memory"
-  * Use read-only information commands, not action commands
+- LOCAL queries: Information about THIS computer/system
+
+OS DETECTION (ALREADY DONE - USE THIS):
+  * Current system: {self.os_info['os']}
+  * Shell: {self.os_info['shell_type']}
+
+GENERALIZATION PRINCIPLES FOR {self.os_info['os']}:
+  * On macOS: Use 'osascript' for AppleScript queries (GUI apps, system settings, dialogs)
+  * On macOS: Use standard Unix commands (ps, df, date, etc.) for system info
+  * On macOS: Use 'pmset' for power/battery, 'defaults' for preferences
+  * On Linux: Use standard GNU tools (ps, free, df, amixer, etc.)
+  * THINK about what tool would logically provide the information requested
+  * If a command fails, understand WHY and try a different approach for THIS OS
+  * Do NOT use Linux commands on macOS or vice versa
+  
+SEMANTIC UNDERSTANDING:
+  * "apps" or "applications" = GUI applications (use AppleScript on macOS)
+  * "processes" = all running processes (use ps)
+  * "volume" = audio level (use osascript on macOS, amixer on Linux)
+  * "battery" = power status (use pmset on macOS, upower on Linux)
+  * Understand what the user MEANS, not just the words they use
 - EXTERNAL queries: Information from the internet/world (sports scores, news, current events, etc.)
   * Use web_search with effective search queries
 
@@ -186,8 +207,16 @@ If you cannot extract relevant information, respond with: "Could not find [what 
         
         max_iterations = 5
         iteration = 0
+        last_tool_succeeded = False  # Track if we got any successful tool result
+        self._run_shell_failures = 0  # Reset failure counter for new task
+        
+        # Store task for reference in error messages
+        self._current_task = task
         
         while iteration < max_iterations:
+            if iteration > 0:
+                print(f"  🔄 Retry attempt {iteration + 1}/{max_iterations}...")
+            
             response = chain.invoke({"messages": messages})
             response_text = response.content if hasattr(response, 'content') else str(response)
             
@@ -199,8 +228,20 @@ If you cannot extract relevant information, respond with: "Could not find [what 
             
             # If no tool calls detected, ask LLM to reconsider with semantic understanding
             if not tool_calls and iteration == 0:
+                print(f"  ⚠️  No tool call detected, prompting LLM to use tools...")
                 # Let LLM understand context semantically - no specific command hints
                 messages.append(HumanMessage(content="You MUST call a tool. For local system info (this computer), use: run_shell(command=\"your_command_here\"). For internet queries, use: web_search(query=\"your_query_here\"). Analyze the task and call the appropriate tool NOW."))
+                iteration += 1
+                continue
+            
+            # If no tool calls on retry, LLM might be giving up - force it to try again or use web search
+            if not tool_calls and iteration > 0:
+                print(f"  ⚠️  LLM responded without tool call on retry {iteration}...")
+                if self._run_shell_failures >= 2:
+                    print(f"  🔄 Suggesting web search fallback...")
+                    messages.append(HumanMessage(content=f"You haven't called a tool. Since previous commands failed on {self.os_info['os']}, use web_search to find 'how to list running apps on {self.os_info['os']} terminal'. Then use what you learn."))
+                else:
+                    messages.append(HumanMessage(content=f"You must call a tool. Previous command failed - try a DIFFERENT approach. This is {self.os_info['os']}."))
                 iteration += 1
                 continue
             
@@ -212,11 +253,20 @@ If you cannot extract relevant information, respond with: "Could not find [what 
             
             if tool_calls:
                 tool_call_succeeded = False  # Initialize before loop
+                run_shell_failures = getattr(self, '_run_shell_failures', 0)
+                
                 for tool_call in tool_calls:
                     tool_name = tool_call.get("tool")
                     tool_kwargs = tool_call.get("kwargs", {})  # Use kwargs, not args
                     
-                    print(f"  🔧 Calling tool: {tool_name}")
+                    # Log the actual command being tried for debugging
+                    if tool_name == "run_shell":
+                        cmd = tool_kwargs.get("command", "")
+                        print(f"  🔧 Calling tool: {tool_name}")
+                        print(f"     📝 Command: {cmd[:100]}{'...' if len(cmd) > 100 else ''}")
+                    else:
+                        print(f"  🔧 Calling tool: {tool_name}")
+                    
                     result = self._execute_tool(tool_name, **tool_kwargs)
                     
                     if result.get("status") == "error":
@@ -253,18 +303,22 @@ If you cannot extract relevant information, respond with: "Could not find [what 
                             exit_code = result.get("exit_code", -1)
                             stderr = result.get("stderr", "")
                             
-                            # Check if command doesn't exist (Errno 2) - provide OS-specific guidance
+                            # Check if command doesn't exist (Errno 2) - guide LLM to think about OS
                             if "[Errno 2]" in error_msg and "No such file or directory" in error_msg:
                                 import re
                                 cmd_match = re.search(r"No such file or directory: ['\"]([^'\"]+)['\"]", error_msg)
                                 wrong_cmd = cmd_match.group(1) if cmd_match else command
                                 
-                                # Provide OS-specific guidance
-                                os_hint = f"This is {self.os_info['os']}. "
+                                # Guide LLM to generalize based on OS understanding
+                                os_hint = f"IMPORTANT: This is {self.os_info['os']}, not Linux. "
+                                os_hint += f"The command '{wrong_cmd}' does not exist on {self.os_info['os']}. "
+                                os_hint += "Think about what tools ARE available on this OS for this type of query. "
                                 if self.os_info['os'] == 'macOS':
-                                    os_hint += "For audio/volume, use: osascript -e 'output volume of (get volume settings)'. For battery: pmset -g batt. Do NOT use Linux commands like amixer."
+                                    os_hint += "macOS uses: osascript (AppleScript) for GUI/system queries, pmset for power, defaults for preferences, and standard Unix commands."
+                                elif self.os_info['os'] == 'Linux':
+                                    os_hint += "Linux uses: GNU tools like amixer, upower, free, etc."
                                 
-                                messages.append(AIMessage(content=f"Tool {tool_name} failed: command '{wrong_cmd}' does not exist on this system. {os_hint} Determine the correct {self.os_info['os']}-specific command for what the user is asking."))
+                                messages.append(AIMessage(content=f"Tool {tool_name} failed: {os_hint} Determine the correct approach for {self.os_info['os']}."))
                                 iteration += 1
                                 continue
                             
@@ -280,12 +334,31 @@ If you cannot extract relevant information, respond with: "Could not find [what 
                             
                             # Check for command execution failure (exit code != 0)
                             if exit_code != 0:
-                                # Extract error details to help LLM understand
+                                # Track run_shell failures for fallback logic
+                                self._run_shell_failures = getattr(self, '_run_shell_failures', 0) + 1
+                                print(f"  📊 Shell failure count: {self._run_shell_failures}")
+                                
+                                # After 2 failed attempts, suggest using web search to find the right command
+                                if self._run_shell_failures >= 2:
+                                    print(f"  🔄 Multiple command failures ({self._run_shell_failures}) - using web search fallback")
+                                    search_query = f"how to list running apps on {self.os_info['os']} using terminal command"
+                                    messages.append(AIMessage(content=f"Commands keep failing on {self.os_info['os']}. Use web_search(query=\"{search_query}\") to find the correct command. Do NOT guess - search and learn first."))
+                                    # Don't increment iteration here - let the outer loop handle it
+                                    break  # Break to let LLM try web search
+                                
+                                # Extract error details to help LLM understand and generalize
                                 error_details = stderr if stderr else error_msg
-                                os_hint = f"This is {self.os_info['os']}. Use {self.os_info['os']}-specific commands."
-                                messages.append(AIMessage(content=f"Tool {tool_name} failed: command '{command}' returned exit code {exit_code}. Error: {error_details}. {os_hint} Determine the correct command for this system."))
-                                iteration += 1
-                                continue
+                                
+                                # Build helpful context - include the ACTUAL error from stderr
+                                os_context = f"This is {self.os_info['os']}. "
+                                os_context += f"The command '{command}' failed. "
+                                if stderr:
+                                    os_context += f"Error output: {stderr[:300]}. "
+                                os_context += f"Try a COMPLETELY DIFFERENT approach. Do NOT repeat the same command."
+                                
+                                messages.append(AIMessage(content=f"Tool {tool_name} failed: {os_context}"))
+                                # Don't increment iteration here - let the outer loop handle it
+                                break  # Break to retry with new approach
                             
                             # For other run_shell errors, let LLM understand context semantically
                             messages.append(AIMessage(content=f"Tool {tool_name} returned error: {error_msg}. The command was: {command}. Understand the query semantically: Is this about local system information or external information? If external, use web_search. If local, determine the correct run_shell command for the information the user is seeking."))
@@ -313,6 +386,7 @@ If you cannot extract relevant information, respond with: "Could not find [what 
                     
                     # If we got here, tool succeeded (status != "error")
                     tool_call_succeeded = True
+                    last_tool_succeeded = True  # Track for the whole execution
                     
                     # Handle run_shell results - return directly for local queries
                     if tool_name == "run_shell":
@@ -513,8 +587,9 @@ If you cannot extract relevant information, respond with: "Could not find [what 
                 continue
             
             # No tool calls - check if we have a final answer
-            # If we've run tools and now have a response, that's our answer
-            if iteration > 0 or "answer" in response_text.lower() or len(response_text) > 50:
+            # Only return success if we actually got a successful tool result
+            # Or if this is a direct answer without needing tools
+            if last_tool_succeeded or (iteration == 0 and len(response_text) > 50):
                 # Clean up the answer - remove code blocks and tool call suggestions
                 answer = response_text
                 
@@ -557,7 +632,8 @@ If you cannot extract relevant information, respond with: "Could not find [what 
             iteration += 1
         
         # Return final response from last iteration
-        if messages:
+        # Only return success if we actually got a successful tool result
+        if messages and last_tool_succeeded:
             # Find the last AI response (not a HumanMessage we added)
             for i in range(len(messages) - 1, -1, -1):
                 if hasattr(messages[i], 'content'):
@@ -576,17 +652,11 @@ If you cannot extract relevant information, respond with: "Could not find [what 
                         "agent": self.agent_name,
                         "task_type": "query"
                     }
-            # If no good response found, return a helpful message
-            return {
-                "status": "error",
-                "message": "Unable to complete the task after multiple attempts. Please try rephrasing your request.",
-                "agent": self.agent_name,
-                "task_type": "query"
-            }
         
+        # If no tool succeeded, return error with helpful message
         return {
             "status": "error",
-            "message": "No response generated",
+            "message": f"Unable to complete the task after {iteration} attempts. The commands tried did not succeed on this system ({self.os_info.get('os', 'Unknown OS')}). Please try rephrasing your request or check system permissions.",
             "agent": self.agent_name,
             "task_type": "query"
         }
