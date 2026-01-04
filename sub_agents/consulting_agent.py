@@ -393,7 +393,7 @@ If you cannot extract relevant information, respond with: "Could not find [what 
                                 # If date is in future (more than current year) or very old, it's stale
                                 if year > current_year + 1 or year < current_year - 1:
                                     stale_detected = True
-                break
+                                    break
                             except:
                                 pass
                         
