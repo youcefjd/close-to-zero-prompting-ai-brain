@@ -56,8 +56,8 @@ Build complete systems from a single prompt:
 ### 🧠 **Intelligent LLM Provider Selection**
 Choose your AI backend at startup:
 - **Ollama (Local)** - FREE, private, default
-- **OpenAI** - Commercial, GPT-4
-- **Anthropic Claude** - Commercial, Claude-3
+- **OpenAI** - Commercial, GPT-5
+- **Anthropic Claude** - Commercial, Claude-4.5
 
 ### 🔄 **Self-Evolution**
 Automatically generates new capabilities:
