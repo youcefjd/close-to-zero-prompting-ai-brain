@@ -65,7 +65,13 @@ For complex systems, you need to know:
 - Team expertise
 - Timeline/deadlines
 
-Generate targeted questions to gather this context. Return as JSON array:
+IMPORTANT: 
+- If the user has ALREADY PROVIDED information (shown after "USER HAS ALREADY PROVIDED"), DO NOT ask about those topics again
+- Only generate questions for MISSING information
+- If the user has provided enough context, return an empty array []
+- Do not ask redundant or repetitive questions
+
+Generate targeted questions to gather ONLY MISSING context. Return as JSON array:
 [
     {{
         "question": "What is the expected number of concurrent users?",
@@ -79,8 +85,10 @@ Generate targeted questions to gather this context. Return as JSON array:
         "required": true,
         "options": ["99.9% (3 nines)", "99.99% (4 nines)", "99.999% (5 nines)"]
     }}
-]"""),
-            HumanMessage(content=f"User request: {initial_prompt}\n\nWhat questions do you need to ask to make good design decisions?")
+]
+
+Return [] if no additional questions are needed."""),
+            HumanMessage(content=f"User request: {initial_prompt}\n\nWhat NEW questions do you need to ask? (Check what's already provided above)")
         ])
         
         try:
@@ -122,29 +130,59 @@ Generate targeted questions to gather this context. Return as JSON array:
             )
         ]
     
-    def gather_context(self, initial_prompt: str) -> Dict[str, Any]:
+    def gather_context(self, initial_prompt: str, existing_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Gather context through targeted questions.
         
         Args:
             initial_prompt: Initial user request
+            existing_context: Optional context with previous clarifications to avoid redundant questions
             
         Returns:
             Gathered context dictionary
         """
+        existing_context = existing_context or {}
+        
+        # Extract previous clarifications for context
+        all_clarifications = existing_context.get("all_clarifications", [])
+        clarification_text = "\n".join(all_clarifications) if all_clarifications else ""
+        
         print("\n" + "="*70)
         print("📋 DESIGN CONSULTATION: Gathering Context")
         print("="*70)
         
-        # Analyze requirements
-        questions = self.analyze_requirements(initial_prompt)
+        # Analyze requirements - pass existing clarifications so LLM can avoid redundant questions
+        if clarification_text:
+            enhanced_prompt = f"{initial_prompt}\n\nUSER HAS ALREADY PROVIDED:\n{clarification_text}"
+        else:
+            enhanced_prompt = initial_prompt
+            
+        questions = self.analyze_requirements(enhanced_prompt)
         
         if not questions:
+            # Return combined existing context
+            self.context.update({k: v for k, v in existing_context.items() if k not in ["all_clarifications", "force_proceed"]})
             return self.context
         
-        # Ask questions
-        print(f"\n   I need to ask {len(questions)} question(s) to make the best design decisions:\n")
+        # Filter out questions that might already be answered in clarifications
+        # Let LLM's analysis handle this - but we can check for obvious duplicates
+        questions_to_ask = []
+        for q in questions:
+            # Check if this question's context_key is already answered
+            if q.context_key in existing_context and existing_context[q.context_key]:
+                print(f"   ✅ Already answered: {q.context_key}")
+                q.answer = existing_context[q.context_key]
+                self.context[q.context_key] = q.answer
+            else:
+                questions_to_ask.append(q)
         
-        for i, question in enumerate(questions, 1):
+        if not questions_to_ask:
+            print(f"\n   ✅ All context already gathered from previous clarifications!")
+            return self.context
+        
+        # Ask remaining questions
+        print(f"\n   I need to ask {len(questions_to_ask)} question(s) to make the best design decisions:\n")
+        
+        for i, question in enumerate(questions_to_ask, 1):
             print(f"   {i}. {question.question}")
             if question.options:
                 print(f"      Options: {', '.join(question.options)}")

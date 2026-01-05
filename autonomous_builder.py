@@ -32,33 +32,47 @@ class AutonomousBuilder:
         self.auth_broker = get_auth_broker()
         self.governance = get_governance()
     
-    def build_system(self, initial_prompt: str) -> Dict[str, Any]:
+    def build_system(self, initial_prompt: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Complete system building workflow.
         
         Args:
             initial_prompt: Initial user request
+            context: Optional context with existing clarifications
             
         Returns:
             Build result
         """
+        existing_context = context or {}
+        
         print("\n" + "="*70)
         print("🏗️  AUTONOMOUS SYSTEM BUILDER")
         print("="*70)
         print(f"\n📥 Initial Request: {initial_prompt}\n")
         
+        # Check if we already have clarifications from routing phase
+        all_clarifications = existing_context.get("all_clarifications", [])
+        
         # Step 1: Gather context through targeted questions
+        # Pass existing clarifications so LLM only asks NEW questions
         print("\n" + "="*70)
         print("STEP 1: CONTEXT GATHERING")
         print("="*70)
         
-        context = self.design_consultant.gather_context(initial_prompt)
+        if all_clarifications:
+            print(f"\n   📋 Passing {len(all_clarifications)} previous clarification(s) to context gathering...")
+        
+        # Pass existing context - the design consultant will only ask NEW questions
+        gathered_context = self.design_consultant.gather_context(
+            initial_prompt, 
+            existing_context=existing_context
+        )
         
         # Step 2: Generate design options
         print("\n" + "="*70)
         print("STEP 2: DESIGN OPTION GENERATION")
         print("="*70)
         
-        options = self.design_consultant.generate_design_options(initial_prompt, context)
+        options = self.design_consultant.generate_design_options(initial_prompt, gathered_context)
         
         if not options:
             return {
@@ -78,7 +92,7 @@ class AutonomousBuilder:
         print("="*70)
         
         quotas = self.design_consultant.gather_resource_quotas(selected_option)
-        context["resource_quotas"] = quotas
+        gathered_context["resource_quotas"] = quotas
         
         # Step 5: Design architecture based on selected option
         print("\n" + "="*70)
@@ -108,7 +122,7 @@ Resource Quotas:
         print("STEP 5: AUTHENTICATION")
         print("="*70)
         
-        auth_requirements = self._identify_auth_requirements(architecture, context)
+        auth_requirements = self._identify_auth_requirements(architecture, gathered_context)
         
         for auth_type, service_name in auth_requirements:
             print(f"\n   🔐 Authentication required for: {service_name}")
@@ -138,7 +152,7 @@ Resource Quotas:
         print("STEP 7: TROUBLESHOOTING TOOLS")
         print("="*70)
         
-        troubleshooting_tools = self._generate_troubleshooting_tools(architecture, context)
+        troubleshooting_tools = self._generate_troubleshooting_tools(architecture, gathered_context)
         
         if troubleshooting_tools:
             print(f"\n   🔧 Generating {len(troubleshooting_tools)} troubleshooting tools...")
@@ -147,14 +161,52 @@ Resource Quotas:
                 if result.get("status") == "success":
                     print(f"   ✅ Generated: {tool_spec['tool_name']}")
         
-        # Step 9: Build the system using meta-agent (with governance)
+        # Step 9: Build the system - execute directly with ConsultingAgent
+        # DO NOT use meta_agent.process_request as it would route back to design (infinite loop)
         print("\n" + "="*70)
         print("STEP 8: SYSTEM BUILDING")
         print("="*70)
         
-        # All tool executions in meta_agent will be checked by governance
-        # (governance is enforced in base_agent._execute_tool)
-        build_result = self.meta_agent.process_request(full_requirements)
+        # Use ConsultingAgent directly for execution to avoid recursive routing
+        from sub_agents.consulting_agent import ConsultingAgent
+        
+        execution_agent = ConsultingAgent()
+        
+        # Build execution context with all gathered information
+        execution_context = {
+            "design_complete": True,
+            "selected_option": selected_option.name,
+            "architecture": architecture,
+            "context": gathered_context,
+            "resource_quotas": quotas,
+            "skip_design_routing": True  # Prevent re-routing to design
+        }
+        
+        # Create focused execution prompt
+        execution_prompt = f"""Execute the following system setup based on the completed design:
+
+DESIGN: {selected_option.name}
+{selected_option.description}
+
+ARCHITECTURE:
+{json.dumps(architecture, indent=2)}
+
+USER CONTEXT:
+{json.dumps(context, indent=2)}
+
+RESOURCE QUOTAS:
+{json.dumps(quotas, indent=2)}
+
+TASK: Provide step-by-step instructions to set up this system. Include:
+1. Prerequisites to install (e.g., brew install minikube)
+2. Configuration commands
+3. Verification steps
+4. Basic usage examples
+
+Execute commands where safe, or provide the exact commands the user should run."""
+
+        print(f"\n   📋 Executing build with {selected_option.name}...")
+        build_result = execution_agent.execute(execution_prompt, execution_context)
         
         return {
             "status": "success",
@@ -163,7 +215,7 @@ Resource Quotas:
                 "name": selected_option.name,
                 "description": selected_option.description
             },
-            "context": context,
+            "context": gathered_context,
             "resource_quotas": quotas,
             "observability": observability_result,
             "build_result": build_result

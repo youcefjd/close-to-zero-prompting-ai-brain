@@ -108,7 +108,14 @@ AVAILABLE TOOLS:
 CRITICAL: 
 - This is {self.os_info['os']} - do NOT use Linux commands like amixer
 - For macOS audio, use osascript with AppleScript syntax
-- Execute directly - don't just explain how to do it"""
+- Execute directly - don't just explain how to do it
+
+MID-EXECUTION CLARIFICATION:
+- If you are in the middle of a task and realize you need CRITICAL information to proceed, you may request clarification
+- To request clarification, respond with: CLARIFICATION_NEEDED: <your question>
+- Only use this for CRITICAL missing information that prevents task completion
+- Do NOT use this for nice-to-have information - make reasonable assumptions instead
+- Example: "CLARIFICATION_NEEDED: You want to deploy to Kubernetes, but should I use Minikube, k3s, or Docker Desktop's K8s?"""
         
         super().__init__("ConsultingAgent", system_prompt)
     
@@ -219,6 +226,24 @@ If you cannot extract relevant information, respond with: "Could not find [what 
             
             response = chain.invoke({"messages": messages})
             response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            # Check for mid-execution clarification request
+            if "CLARIFICATION_NEEDED:" in response_text:
+                # Extract the clarification question
+                clarification_start = response_text.find("CLARIFICATION_NEEDED:") + len("CLARIFICATION_NEEDED:")
+                clarification_question = response_text[clarification_start:].strip()
+                # Clean up - take first sentence/line
+                if "\n" in clarification_question:
+                    clarification_question = clarification_question.split("\n")[0].strip()
+                
+                print(f"  ❓ Agent needs clarification: {clarification_question[:100]}...")
+                return {
+                    "status": "needs_human",
+                    "question": clarification_question,
+                    "agent": self.agent_name,
+                    "progress": "in_progress",
+                    "partial_result": response_text.split("CLARIFICATION_NEEDED:")[0].strip() or None
+                }
             
             messages.append(HumanMessage(content=task if iteration == 0 else "Continue"))
             messages.append(response)

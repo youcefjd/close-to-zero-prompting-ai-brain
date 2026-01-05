@@ -32,16 +32,31 @@ class AutonomousRouter:
         self.use_semantic = use_semantic
         self.semantic_router = get_semantic_router() if use_semantic else None
         
-    def analyze_task(self, task: str) -> Dict[str, Any]:
+    def analyze_task(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Analyze task to determine complexity, domain, and required sub-agents."""
+        context = context or {}
+        
+        # Build clarification context string
+        all_clarifications = context.get("all_clarifications", [])
+        clarification_context = ""
+        if all_clarifications:
+            clarification_context = f"""
+
+IMPORTANT - USER HAS ALREADY PROVIDED THESE CLARIFICATIONS:
+{chr(10).join([f"- {c}" for c in all_clarifications])}
+
+DO NOT ask questions that have already been answered above.
+If you have enough information to proceed, set needs_clarification to false.
+Only ask NEW questions about CRITICAL missing information."""
         
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="""You are an autonomous task router with semantic understanding.
+            SystemMessage(content=f"""You are an autonomous task router with semantic understanding.
 
 PRINCIPLES:
 1. Understand the semantic meaning and intent of the user's task
 2. Generalize understanding to similar tasks
 3. Route based on what the user is trying to accomplish, not surface patterns
+4. REMEMBER context from previous clarifications - do not ask redundant questions
 
 ROUTING:
 - Understand if the task is a QUESTION/INFORMATION REQUEST (consultation) or ACTION/EXECUTION REQUEST (execution)
@@ -59,10 +74,15 @@ CRITICAL ROUTING RULES:
 - If the user wants to EXECUTE operations → appropriate agent (docker, config, python, system)
 - "design" agent: Handles complex system building (k8s clusters, applications, assistants, infrastructure) - asks clarifying questions when needed, then builds autonomously
 
-- Generalize your understanding to handle ANY task type - read/write, local/external, execution/research, analysis/design
+CLARIFICATION RULES:
+- Only ask for clarification if you are MISSING CRITICAL information to route/execute
+- If the user has provided clarifications, USE that information - don't ask the same questions
+- Make reasonable assumptions for nice-to-have details
+- Prefer to PROCEED with what you have rather than endlessly asking questions
+{clarification_context}
 
 Respond ONLY with valid JSON:
-{
+{{
     "task_type": "execution|consultation",
     "primary_agent": "docker|config|python|homeassistant|system|cloud|general|consulting|design",
     "secondary_agents": [],
@@ -72,13 +92,14 @@ Respond ONLY with valid JSON:
     "required_tools": ["tool1", "tool2"],
     "estimated_steps": 1,
     "confidence": 0.9
-}
+}}
 
 CRITICAL: 
 - Information queries (even about local system) → consulting
 - BUILDING/CREATING systems from scratch (k8s clusters, applications, assistants, infrastructure) → design (will ask clarifying questions then build)
 - Simple execution tasks → appropriate agent (docker, config, python, system)
-- The system has FULL AUTONOMY - it can execute, build, create, analyze, research - ANY operation"""),
+- The system has FULL AUTONOMY - it can execute, build, create, analyze, research - ANY operation
+- DO NOT ask redundant questions - check clarifications above first"""),
             HumanMessage(content=task)
         ])
         
@@ -122,16 +143,23 @@ CRITICAL:
             "confidence": 0.5  # Low confidence - LLM failed
         }
     
-    def route(self, task: str) -> Dict[str, Any]:
+    def route(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Route task to appropriate sub-agent(s)."""
+        context = context or {}
+        
         # ALWAYS use LLM analysis first (semantic understanding)
-        analysis = self.analyze_task(task)
+        # Pass context so LLM knows what clarifications have already been provided
+        analysis = self.analyze_task(task, context)
         
         # Trust LLM routing - no keyword-based overrides
         # The LLM should understand semantic meaning and route correctly
         
         # Check if clarification is needed
-        if analysis.get("needs_clarification"):
+        force_proceed = context.get("force_proceed", False)
+        
+        if analysis.get("needs_clarification") and not force_proceed:
+            # LLM decided it needs clarification - trust its judgment
+            # The LLM has the full context of previous clarifications, so it won't ask redundant questions
             return {
                 "action": "ask_human",
                 "question": analysis.get("clarification_question", "Need clarification on this task."),

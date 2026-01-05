@@ -49,8 +49,8 @@ class AutonomousOrchestrator:
             print(f"   {similar_solution.get('summary', '')[:100]}...")
             # Use as context but still execute to verify
         
-        # Step 2: Route task
-        routing = self.router.route(task)
+        # Step 2: Route task (pass context so router knows about clarifications)
+        routing = self.router.route(task, context=context)
         
         if routing.get("action") == "ask_human":
             return {
@@ -63,9 +63,10 @@ class AutonomousOrchestrator:
         primary_agent_name = routing.get("primary_agent", "general")
         if primary_agent_name == "design":
             # Use autonomous builder for design tasks
+            # Pass context so builder can use existing clarifications
             from autonomous_builder import AutonomousBuilder
             builder = AutonomousBuilder(environment=context.get("environment", "production") if context else "production")
-            return builder.build_system(task)
+            return builder.build_system(task, context=context)
         
         # Check if this is a consultation task (no execution needed)
         task_type = routing.get("analysis", {}).get("task_type") or routing.get("task_type", "execution")
@@ -195,7 +196,24 @@ class AutonomousOrchestrator:
             # If self-healing didn't work or wasn't applicable, raise original error
             raise
         
-        # Step 7: Post-execution validation
+        # Step 7: Check for mid-execution clarification requests
+        # Agents can return needs_human if they need more info during execution
+        if result.get("status") == "needs_human":
+            # Bubble up to meta_agent for human interaction
+            return {
+                "status": "needs_human",
+                "question": result.get("question", result.get("message", "Need more information to proceed.")),
+                "reason": "Agent requires clarification during execution",
+                "agent": primary_agent_name,
+                "partial_result": result.get("partial_result"),
+                "execution_context": {
+                    "task": task,
+                    "agent": primary_agent_name,
+                    "progress": result.get("progress", "in_progress")
+                }
+            }
+        
+        # Step 8: Post-execution validation
         if result.get("status") == "success":
             validation = self.fact_checker.post_execution_validation(task, result)
             if not validation.get("is_valid"):
@@ -220,7 +238,7 @@ class AutonomousOrchestrator:
                     success=False
                 )
         
-        # Step 8: Handle secondary agents if needed (parallelize if async)
+        # Step 9: Handle secondary agents if needed (parallelize if async)
         secondary_agents = routing.get("secondary_agents", [])
         if secondary_agents and result.get("status") == "success":
             # Collect async-capable agents for parallel execution

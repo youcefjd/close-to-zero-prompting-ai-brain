@@ -1135,9 +1135,10 @@ def main():
                     print(f"  ⏸️  Approval required but no approval ID found")
         
             # Handle clarification requests (needs_human) - INTERACTIVE LOOP
-            # Keep prompting until we get a non-needs_human response
+            # Keep prompting as long as the system needs clarification
+            # No artificial limit - context flows through to prevent redundant questions
             clarification_round = 0
-            max_clarifications = 5
+            max_clarifications = 20  # Safety limit only - should never hit this with proper context passing
             while result.get("status") == "needs_human" and clarification_round < max_clarifications:
                 clarification_round += 1
                 print_section(f"Clarification Needed (Round {clarification_round})")
@@ -1186,6 +1187,26 @@ def main():
                 except (EOFError, KeyboardInterrupt):
                     print(f"\n  ℹ️  Clarification cancelled.")
                     break
+            
+            # After clarification loop ends, if we still have needs_human, force proceed
+            if result.get("status") == "needs_human":
+                if clarification_round >= max_clarifications:
+                    print(f"\n  📋 Maximum clarifications ({max_clarifications}) reached. Proceeding with available information...")
+                else:
+                    print(f"\n  📋 Proceeding with {clarification_round} clarification(s) provided...")
+                
+                # Force proceed with what we have
+                context["force_proceed"] = True
+                all_clarifications = context.get("all_clarifications", [])
+                if all_clarifications:
+                    clarified_request = f"{request}\n\nClarifications provided:\n" + "\n".join([f"- {c}" for c in all_clarifications])
+                else:
+                    clarified_request = request
+                
+                print(f"  🔄 Executing with collected information...")
+                result = meta_agent.process_request(clarified_request, context=context)
+                elapsed = time.time() - start_time
+                cost_summary = cost_tracker.get_summary()
             
             # Check for errors
             if result.get("status") == "error":
