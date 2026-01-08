@@ -125,6 +125,14 @@ class GovernanceFramework:
                 "⚠️ CRITICAL: I want to deploy a new MCP server. This gives the agent new capabilities. Approve?",
                 allowed_contexts=[]  # Never auto-approve - most dangerous operation
             ),
+            ToolGovernance(
+                "self_modify_codebase",
+                RiskLevel.RED,
+                "Self-modify codebase (self-healing)",
+                True,
+                "⚠️ CRITICAL: I want to modify my own codebase to fix an issue. This is self-healing. Approve?",
+                allowed_contexts=["dev", "staging"]  # Allow in dev/staging, require approval in production
+            ),
         ]
         
         # Register all tools
@@ -137,7 +145,148 @@ class GovernanceFramework:
     
     def check_permission(self, tool_name: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Check if tool can be executed autonomously."""
+        context = context or {}
+        
+        # Special handling for run_shell - use LLM to understand if command is read-only or write
+        # 🟢 GREEN: Read-only operations should NEVER ask for approval
+        if tool_name == "run_shell":
+            # Extract command from various possible locations in context
+            command = (
+                context.get("command") or 
+                (context.get("kwargs", {}).get("command", "")) or
+                (context.get("change_plan", {}).get("kwargs", {}).get("command", ""))
+            )
+            
+            # Try to get command from various sources
+            if not command:
+                if "kwargs" in context:
+                    command_from_kwargs = context.get("kwargs", {}).get("command", "")
+                    if command_from_kwargs:
+                        command = command_from_kwargs
+            
+            if command:
+                # Use LLM to semantically understand if this is a read or write operation
+                from langchain_ollama import ChatOllama
+                from langchain_core.prompts import ChatPromptTemplate
+                from langchain_core.messages import SystemMessage, HumanMessage
+                
+                llm = ChatOllama(model="gemma3:4b", temperature=0.1)
+                
+                prompt = ChatPromptTemplate.from_messages([
+                    SystemMessage(content="""You are a command analyzer. Your job is to understand the semantic meaning of shell commands.
+
+PRINCIPLES:
+1. Understand what the command DOES, not just pattern-match
+2. Read operations: Commands that RETRIEVE information without modifying system state
+3. Write operations: Commands that MODIFY system state, files, settings, or configurations
+
+READ OPERATIONS (🟢 GREEN - no approval needed):
+- Getting information: status, list, show, get, output, query, read
+- Viewing data: cat, less, head, tail, grep (without >), find (without -exec)
+- Inspecting: ps, top, df, du, ifconfig, netstat, system_profiler
+- Reading files: cat, less, head, tail, grep (read-only)
+- Querying system: osascript with "get" or "output", date, uname, whoami
+
+WRITE OPERATIONS (🔴 RED - requires approval):
+- Modifying files: >, >>, echo >, tee, sed -i, vim, nano (with write)
+- Changing state: set, chmod, chown, mount, unmount, kill, restart
+- Creating/deleting: mkdir, rmdir, rm, touch, cp, mv (if modifying)
+- Installing: install, apt-get, brew install, pip install
+- System changes: sudo (unless clearly read-only), systemctl start/stop
+
+CRITICAL: Understand semantic meaning. "osascript -e 'output volume of (get volume settings)'" is READ (getting info).
+"osascript -e 'set volume 50'" is WRITE (changing state).
+
+Respond ONLY with JSON:
+{
+    "operation_type": "read|write",
+    "risk_level": "green|red",
+    "reasoning": "brief explanation"
+}"""),
+                    HumanMessage(content=f"Analyze this command: {command}")
+                ])
+                
+                try:
+                    import json
+                    import re
+                    
+                    # Use LLM to analyze command semantically
+                    chain = prompt | llm
+                    response = chain.invoke({})
+                    response_text = response.content.strip()
+                    
+                    # Extract JSON from response (handle markdown code blocks)
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(1)
+                    else:
+                        # Try to find JSON object directly
+                        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        if json_match:
+                            response_text = json_match.group(0)
+                    
+                    analysis = json.loads(response_text)
+                    operation_type = analysis.get("operation_type", "write").lower()
+                    
+                    if operation_type == "read":
+                        # 🟢 GREEN: Read-only operation - NO approval needed
+                        print(f"  🟢 Auto-approving read-only operation")
+                        return {
+                            "allowed": True,
+                            "risk_level": RiskLevel.GREEN.value,
+                            "requires_approval": False,
+                            "message": f"Read-only operation detected - auto-approved (GREEN). {analysis.get('reasoning', '')}"
+                        }
+                    else:
+                        print(f"  🔴 Write operation detected - requires approval")
+                    # If write operation, continue to default RED behavior
+                except json.JSONDecodeError:
+                    # JSON parsing failed - continue to default RED behavior (requires approval)
+                    pass
+                except Exception:
+                    # LLM analysis failed - continue to default RED behavior (requires approval)
+                    pass
+        
+        # If we get here, run_shell wasn't detected as read-only, so it requires approval
+        # This means either:
+        # 1. No command in context
+        # 2. LLM analysis failed
+        # 3. LLM determined it's a write operation
+        
         if tool_name not in self.tool_registry:
+            # Special handling for self_modify_codebase
+            if tool_name == "self_modify_codebase":
+                context = context or {}
+                environment = context.get("environment", "production")
+                issue_type = context.get("issue_type", "unknown")
+                severity = context.get("severity", "medium")
+                
+                # Allow in dev/staging for critical issues, require approval in production
+                if environment in ["dev", "development", "staging", "local"]:
+                    if severity == "critical" and issue_type in ["reliability", "bug"]:
+                        return {
+                            "allowed": True,
+                            "risk_level": RiskLevel.RED.value,
+                            "requires_approval": False,
+                            "message": "Self-healing allowed in non-production for critical reliability issues"
+                        }
+                
+                # Default: require approval
+                return {
+                    "allowed": False,
+                    "risk_level": RiskLevel.RED.value,
+                    "requires_approval": True,
+                    "approval_message": f"Self-modification of codebase requires approval (severity: {severity}, type: {issue_type})",
+                    "tool": ToolGovernance(
+                        tool_name,
+                        RiskLevel.RED,
+                        "Self-modify codebase",
+                        True,
+                        f"⚠️ CRITICAL: Self-healing wants to modify codebase. Approve?",
+                        allowed_contexts=["dev", "staging"]
+                    )
+                }
+            
             # Unknown tool - default to RED (most restrictive)
             return {
                 "allowed": False,
@@ -159,21 +308,41 @@ class GovernanceFramework:
                 "message": f"Tool '{tool_name}' not allowed in '{environment}' environment"
             }
         
-        # GREEN tools: Always allowed
+        # GREEN tools: Always allowed (fully autonomous)
         if tool.risk_level == RiskLevel.GREEN:
             return {
                 "allowed": True,
                 "risk_level": RiskLevel.GREEN.value,
                 "requires_approval": False,
-                "message": "Read-only operation - safe to execute"
+                "message": "Read-only operation - safe to execute autonomously"
             }
         
-        # YELLOW/RED tools: Require approval
+        # YELLOW tools: Check if can auto-approve
+        if tool.risk_level == RiskLevel.YELLOW:
+            # Check environment - auto-approve in dev/staging
+            if environment in ["dev", "development", "staging", "local"]:
+                return {
+                    "allowed": True,
+                    "risk_level": RiskLevel.YELLOW.value,
+                    "requires_approval": False,
+                    "message": "Yellow operation - auto-approved in non-production environment"
+                }
+            
+            # In production, require approval for yellow
+            return {
+                "allowed": False,
+                "risk_level": RiskLevel.YELLOW.value,
+                "requires_approval": True,
+                "approval_message": tool.approval_message or f"Tool '{tool_name}' requires approval (YELLOW risk)",
+                "tool": tool
+            }
+        
+        # RED tools: Always require approval (never auto-approve)
         return {
             "allowed": False,
-            "risk_level": tool.risk_level.value,
+            "risk_level": RiskLevel.RED.value,
             "requires_approval": True,
-            "approval_message": tool.approval_message or f"Tool '{tool_name}' requires approval",
+            "approval_message": tool.approval_message or f"Tool '{tool_name}' requires approval (RED risk - critical operation)",
             "tool": tool
         }
     

@@ -21,6 +21,7 @@ from mcp_servers.homeassistant_tools import (
     init_ha_client
 )
 from fact_checker import FactChecker
+from emergency_stop import get_emergency_stop, EmergencyStopException
 
 
 class AgentState(TypedDict):
@@ -41,13 +42,17 @@ class AgentState(TypedDict):
 def create_llm():
     """Create and return the Ollama LLM instance."""
     return ChatOllama(
-        model="llama3.1:latest",
+        model="gemma3:4b",
         temperature=0.7,
     )
 
 
 def planner_node(state: AgentState) -> AgentState:
     """Break down the user goal into actionable steps with complexity awareness."""
+    # Check emergency stop
+    emergency_stop = get_emergency_stop()
+    emergency_stop.check_and_raise()
+    
     llm = create_llm()
     fact_checker = FactChecker()
     
@@ -445,6 +450,10 @@ def executor_node(state: AgentState) -> AgentState:
 
 def reflector_node(state: AgentState) -> AgentState:
     """Enhanced reflection with fact-checking and complexity reduction."""
+    # Check emergency stop
+    emergency_stop = get_emergency_stop()
+    emergency_stop.check_and_raise()
+    
     execution_output = state.get("execution_output", {})
     iteration_count = state.get("iteration_count", 0)
     error_history = state.get("error_history", [])

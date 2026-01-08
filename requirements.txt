@@ -7,5 +7,13 @@ pydantic>=2.0.0
 typing-extensions>=4.8.0
 mcp>=0.9.0
 requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Optional: For semantic routing (Phase 3)
+# sentence-transformers>=2.2.0
+
+# Optional: For OpenAI/Anthropic providers (Phase 2)
+# langchain-openai>=0.0.5
+# langchain-anthropic>=0.1.0
 
 

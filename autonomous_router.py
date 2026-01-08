@@ -5,6 +5,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import HumanMessage
+from semantic_router import get_semantic_router
 import json
 import re
 
@@ -21,61 +22,84 @@ class AutonomousRouter:
         "system": "SystemAgent - Handles file operations, shell commands, system-level tasks",
         "cloud": "ConsultingAgent - Handles cloud architecture, EKS, EMR, ACK, infrastructure decisions",
         "consulting": "ConsultingAgent - Handles analysis, comparison, recommendations, architectural decisions",
+        "design": "DesignConsultant - Handles complex system design with Q&A, options, and resource planning",
         "general": "GeneralAgent - Handles tasks that don't fit other categories"
     }
     
-    def __init__(self):
-        # Phase 1: Use available model (gemma3:4b)
-        # TODO Phase 2: Add auto-detection for available models
+    def __init__(self, use_semantic: bool = True):
         self.llm = ChatOllama(model="gemma3:4b", temperature=0.3)
         self.routing_history = []  # Learn from routing decisions
+        self.use_semantic = use_semantic
+        self.semantic_router = get_semantic_router() if use_semantic else None
         
-    def analyze_task(self, task: str) -> Dict[str, Any]:
+    def analyze_task(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Analyze task to determine complexity, domain, and required sub-agents."""
+        context = context or {}
+        
+        # Build clarification context string
+        all_clarifications = context.get("all_clarifications", [])
+        clarification_context = ""
+        if all_clarifications:
+            clarification_context = f"""
+
+IMPORTANT - USER HAS ALREADY PROVIDED THESE CLARIFICATIONS:
+{chr(10).join([f"- {c}" for c in all_clarifications])}
+
+DO NOT ask questions that have already been answered above.
+If you have enough information to proceed, set needs_clarification to false.
+Only ask NEW questions about CRITICAL missing information."""
         
         prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="""You are an autonomous task router. Analyze the user's task and determine:
-1. Task type: "execution" (do something) OR "consultation" (analyze/compare/recommend)
-2. Primary domain (docker, config, python, homeassistant, system, cloud, general, consulting)
-3. Secondary domains (if task spans multiple)
-4. Complexity level (simple, medium, complex)
-5. Whether human clarification is needed (only for: ambiguous requirements, missing auth, major architectural decisions)
-6. Required tools/capabilities
+            SystemMessage(content=f"""You are an autonomous task router with semantic understanding.
+
+PRINCIPLES:
+1. Understand the semantic meaning and intent of the user's task
+2. Generalize understanding to similar tasks
+3. Route based on what the user is trying to accomplish, not surface patterns
+4. REMEMBER context from previous clarifications - do not ask redundant questions
+
+ROUTING:
+- Understand if the task is a QUESTION/INFORMATION REQUEST (consultation) or ACTION/EXECUTION REQUEST (execution)
+- Select the appropriate agent based on domain understanding:
+  * consulting: ALL questions, information queries, analysis - including queries about local system (battery, disk, memory, etc.) and external information (sports, news, facts, etc.)
+  * config: Creating/editing configuration files (YAML, JSON, etc.)
+  * docker: Container operations (list, start, stop, etc.)
+  * python: Code generation/execution
+  * system: System-level operations (execution, not queries)
+  * design: BUILDING systems from scratch (k8s clusters, applications, assistants, infrastructure, etc.) - asks clarifying questions then builds
+
+CRITICAL ROUTING RULES:
+- If the user is ASKING FOR INFORMATION → "consulting" (handles local system queries with run_shell and external queries with web_search)
+- If the user wants to BUILD/CREATE something from scratch → "design" (will ask clarifying questions then build)
+- If the user wants to EXECUTE operations → appropriate agent (docker, config, python, system)
+- "design" agent: Handles complex system building (k8s clusters, applications, assistants, infrastructure) - asks clarifying questions when needed, then builds autonomously
+
+CLARIFICATION RULES:
+- Only ask for clarification if you are MISSING CRITICAL information to route/execute
+- If the user has provided clarifications, USE that information - don't ask the same questions
+- Make reasonable assumptions for nice-to-have details
+- Prefer to PROCEED with what you have rather than endlessly asking questions
+{clarification_context}
 
 Respond ONLY with valid JSON:
-{
+{{
     "task_type": "execution|consultation",
-    "primary_agent": "docker|config|python|homeassistant|system|cloud|general|consulting",
-    "secondary_agents": ["agent1", "agent2"],
+    "primary_agent": "docker|config|python|homeassistant|system|cloud|general|consulting|design",
+    "secondary_agents": [],
     "complexity": "simple|medium|complex",
     "needs_clarification": false,
     "clarification_question": null,
     "required_tools": ["tool1", "tool2"],
-    "estimated_steps": 3,
+    "estimated_steps": 1,
     "confidence": 0.9
-}
+}}
 
-TASK TYPE DETECTION:
-- "execution": Task asks to DO something (create, fix, deploy, run, etc.)
-- "consultation": Task asks to ANALYZE, COMPARE, ASSESS, RECOMMEND, EVALUATE (no execution needed)
-
-DOMAIN DETECTION:
-- "cloud": EKS, EMR, ACK, AWS, Kubernetes, Terraform, infrastructure decisions
-- "consulting": Analysis, comparison, recommendations, architectural decisions
-- "docker": Container operations, docker-compose
-- "config": YAML, JSON, configuration files
-- "python": Python scripts, code generation
-- "homeassistant": HA integrations, entities, automations
-- "system": File operations, shell commands
-- "general": Fallback
-
-CRITICAL: Only set needs_clarification=true if:
-- Task is genuinely ambiguous (e.g., "improve performance" without context)
-- Authentication credentials are missing and required
-- Major architectural decision needed (e.g., "redesign the system")
-
-For consultation tasks, route to "consulting" agent which provides analysis without execution.
-Otherwise, proceed autonomously."""),
+CRITICAL: 
+- Information queries (even about local system) → consulting
+- BUILDING/CREATING systems from scratch (k8s clusters, applications, assistants, infrastructure) → design (will ask clarifying questions then build)
+- Simple execution tasks → appropriate agent (docker, config, python, system)
+- The system has FULL AUTONOMY - it can execute, build, create, analyze, research - ANY operation
+- DO NOT ask redundant questions - check clarifications above first"""),
             HumanMessage(content=task)
         ])
         
@@ -85,71 +109,64 @@ Otherwise, proceed autonomously."""),
         # Extract JSON from response
         content = response.content if hasattr(response, 'content') else str(response)
         
+        
         # Try to extract JSON
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
             try:
                 analysis = json.loads(json_match.group())
+                
+                # Trust LLM routing - no hardcoded overrides
+                # The LLM should understand context and route correctly
+                
                 return analysis
-            except:
+            except Exception:
+                # LLM response parsing failed - use fallback routing
                 pass
         
         # Fallback: Simple keyword-based routing
         return self._fallback_routing(task)
     
     def _fallback_routing(self, task: str) -> Dict[str, Any]:
-        """Fallback routing based on keywords."""
-        task_lower = task.lower()
-        
-        # Check for consultation/analysis tasks first
-        consultation_keywords = ["assess", "compare", "recommend", "evaluate", "analysis", "which is better", "should i use", "better suited"]
-        is_consultation = any(kw in task_lower for kw in consultation_keywords)
-        
-        primary = "general"
-        if is_consultation:
-            # Check for cloud-specific consultation
-            if any(kw in task_lower for kw in ["eks", "emr", "ack", "aws", "kubernetes", "terraform", "cloud", "infrastructure"]):
-                primary = "cloud"
-            else:
-                primary = "consulting"
-        elif any(kw in task_lower for kw in ["docker", "container", "compose", "image"]):
-            primary = "docker"
-        elif any(kw in task_lower for kw in ["yaml", "json", "config", "configuration", "home assistant", "ha"]):
-            primary = "config"
-        elif any(kw in task_lower for kw in ["python", "script", "code", "function", "class"]):
-            primary = "python"
-        elif any(kw in task_lower for kw in ["integration", "entity", "automation", "service", "homeassistant"]):
-            primary = "homeassistant"
-        elif any(kw in task_lower for kw in ["file", "directory", "shell", "command", "system"]):
-            primary = "system"
-        elif any(kw in task_lower for kw in ["eks", "emr", "ack", "aws", "kubernetes", "terraform"]):
-            primary = "cloud"
-        
+        """Minimal fallback routing - default to consulting when LLM fails."""
+        # Minimal fallback - default to consulting for safety
+        # LLM should handle routing, this is only for catastrophic failures
         return {
-            "task_type": "consultation" if is_consultation else "execution",
-            "primary_agent": primary,
+            "task_type": "consultation",
+            "primary_agent": "consulting",
             "secondary_agents": [],
             "complexity": "medium",
             "needs_clarification": False,
             "clarification_question": None,
             "required_tools": [],
-            "estimated_steps": 3,
-            "confidence": 0.7
+            "estimated_steps": 1,
+            "confidence": 0.5  # Low confidence - LLM failed
         }
     
-    def route(self, task: str) -> Dict[str, Any]:
+    def route(self, task: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Route task to appropriate sub-agent(s)."""
-        analysis = self.analyze_task(task)
+        context = context or {}
+        
+        # ALWAYS use LLM analysis first (semantic understanding)
+        # Pass context so LLM knows what clarifications have already been provided
+        analysis = self.analyze_task(task, context)
+        
+        # Trust LLM routing - no keyword-based overrides
+        # The LLM should understand semantic meaning and route correctly
         
         # Check if clarification is needed
-        if analysis.get("needs_clarification"):
+        force_proceed = context.get("force_proceed", False)
+        
+        if analysis.get("needs_clarification") and not force_proceed:
+            # LLM decided it needs clarification - trust its judgment
+            # The LLM has the full context of previous clarifications, so it won't ask redundant questions
             return {
                 "action": "ask_human",
                 "question": analysis.get("clarification_question", "Need clarification on this task."),
                 "analysis": analysis
             }
         
-        # Route to primary agent
+        # Route to primary agent - trust LLM's understanding
         primary = analysis.get("primary_agent", "general")
         
         # Build routing plan

@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import hashlib
+from output_sanitizer import get_sanitizer
 
 
 class FactChecker:
@@ -14,6 +15,7 @@ class FactChecker:
     def __init__(self, memory_file: str = ".agent_memory.json"):
         self.memory_file = memory_file
         self.memory = self._load_memory()
+        self.sanitizer = get_sanitizer()
     
     def _load_memory(self) -> Dict[str, Any]:
         """Load memory of past successes/failures."""
@@ -220,11 +222,14 @@ class FactChecker:
         }
     
     def record_success(self, action_type: str, action_details: Dict[str, Any], pattern: Optional[str] = None):
-        """Record a successful action for learning."""
+        """Record a successful action for learning (sanitized)."""
+        # Sanitize action details to prevent secret leakage
+        sanitized_details = self.sanitizer.sanitize_dict(action_details.copy(), context="success_record")
+        
         success_record = {
             "action_type": action_type,
             "timestamp": str(Path(self.memory_file).stat().st_mtime) if os.path.exists(self.memory_file) else "unknown",
-            "details": action_details,
+            "details": sanitized_details,
             "pattern": pattern or action_type
         }
         
@@ -237,15 +242,19 @@ class FactChecker:
         self._save_memory()
     
     def record_failure(self, action_type: str, error: str, action_details: Dict[str, Any]):
-        """Record a failed action for learning."""
-        error_hash = hashlib.md5(error.encode()).hexdigest()[:8]
+        """Record a failed action for learning (sanitized)."""
+        # Sanitize error message and action details
+        error_sanitized = self.sanitizer.sanitize(error, context="error_message")
+        sanitized_details = self.sanitizer.sanitize_dict(action_details.copy(), context="failure_record")
+        
+        error_hash = hashlib.md5(error_sanitized.sanitized_content.encode()).hexdigest()[:8]
         
         failure_record = {
             "action_type": action_type,
             "timestamp": str(Path(self.memory_file).stat().st_mtime) if os.path.exists(self.memory_file) else "unknown",
-            "error": error,
+            "error": error_sanitized.sanitized_content,
             "error_hash": error_hash,
-            "details": action_details
+            "details": sanitized_details
         }
         
         self.memory.setdefault("failures", []).append(failure_record)
@@ -358,7 +367,7 @@ class FactChecker:
             return None
     
     def store_solution(self, task: str, result: Dict[str, Any]) -> None:
-        """Store successful solution in memory."""
+        """Store successful solution in memory (sanitized)."""
         if not Path(self.memory_file).exists():
             memory = {"solutions": [], "failures": self.memory.get("failures", []), "successes": self.memory.get("successes", [])}
         else:
@@ -368,11 +377,22 @@ class FactChecker:
             except:
                 memory = {"solutions": [], "failures": [], "successes": []}
         
+        # Sanitize result before storing to prevent secret leakage
+        sanitized_result = self.sanitizer.sanitize_dict(result.copy(), context="memory_storage")
+        
+        # Create summary (also sanitized)
+        summary = result.get("message", "")
+        if isinstance(summary, str):
+            summary_sanitized = self.sanitizer.sanitize(summary, context="summary")
+            summary = summary_sanitized.sanitized_content[:200]
+        else:
+            summary = ""
+        
         solution = {
             "task": task,
-            "result": result,
+            "result": sanitized_result,
             "timestamp": str(__import__("datetime").datetime.now()),
-            "summary": result.get("message", "")[:200] if isinstance(result.get("message"), str) else ""
+            "summary": summary
         }
         
         if "solutions" not in memory:

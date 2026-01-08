@@ -43,11 +43,15 @@ docker-compose.yml
 config.yaml
 output.txt
 .agent_memory.json
+.cost_history.json
+.routing_history.json
+.self_healing_backups/
 
 # Secrets and credentials (NEVER commit these)
 .env
 .secrets/
 *.token.json
 *.credentials.json
+.emergency_stop
 
 
