@@ -64,9 +64,10 @@ Issues = "https://github.com/youcefjd/close-to-zero-prompting-ai-brain/issues"
 [project.scripts]
 ai-brain = "autonomous_orchestrator:main"
 ai-brain-approve = "approve:main"
+ai-engineer = "autonomous_engineer_cli:main"
 
 [tool.setuptools]
-packages = ["sub_agents", "mcp_servers"]
+packages = ["sub_agents", "mcp_servers", "autonomous_engineer"]
 
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.txt", "*.json"]
