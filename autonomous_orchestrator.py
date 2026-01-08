@@ -17,12 +17,14 @@ class AutonomousOrchestrator:
         
         # Initialize sub-agents
         from sub_agents.consulting_agent import ConsultingAgent
-        
+        from sub_agents.pr_review_agent import PRReviewAgent
+
         self.agents = {
             "docker": DockerAgent(),
             "config": ConfigAgent(),
             "consulting": ConsultingAgent(),
             "cloud": ConsultingAgent(),  # Cloud questions use consulting agent
+            "pr_review": PRReviewAgent(),  # NEW: Autonomous PR review
             # Add more agents as they're implemented
             # "python": PythonAgent(),
             # "homeassistant": HomeAssistantAgent(),
