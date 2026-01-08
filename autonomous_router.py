@@ -25,7 +25,9 @@ class AutonomousRouter:
     }
     
     def __init__(self):
-        self.llm = ChatOllama(model="llama3.1:latest", temperature=0.3)
+        # Phase 1: Use available model (gemma3:4b)
+        # TODO Phase 2: Add auto-detection for available models
+        self.llm = ChatOllama(model="gemma3:4b", temperature=0.3)
         self.routing_history = []  # Learn from routing decisions
         
     def analyze_task(self, task: str) -> Dict[str, Any]:
