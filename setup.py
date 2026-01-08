@@ -74,7 +74,6 @@ setup(
         "console_scripts": [
             "ai-brain=autonomous_orchestrator:main",
             "ai-brain-approve=approve:main",
-            "ai-engineer=autonomous_engineer_cli:main",
         ],
     },
     include_package_data=True,
