@@ -1,0 +1,34 @@
+diff --git a/autonomous_orchestrator.py b/autonomous_orchestrator.py
+index 8e25ca7..3857611 100644
+--- a/autonomous_orchestrator.py
++++ b/autonomous_orchestrator.py
+@@ -17,12 +17,14 @@ class AutonomousOrchestrator:
+         
+         # Initialize sub-agents
+         from sub_agents.consulting_agent import ConsultingAgent
+-        
++        from sub_agents.pr_review_agent import PRReviewAgent
++
+         self.agents = {
+             "docker": DockerAgent(),
+             "config": ConfigAgent(),
+             "consulting": ConsultingAgent(),
+             "cloud": ConsultingAgent(),  # Cloud questions use consulting agent
++            "pr_review": PRReviewAgent(),  # NEW: Autonomous PR review
+             # Add more agents as they're implemented
+             # "python": PythonAgent(),
+             # "homeassistant": HomeAssistantAgent(),
+diff --git a/sub_agents/base_agent.py b/sub_agents/base_agent.py
+index e850398..ecf74e1 100644
+--- a/sub_agents/base_agent.py
++++ b/sub_agents/base_agent.py
+@@ -24,7 +24,8 @@ class BaseSubAgent(ABC):
+     
+     def __init__(self, agent_name: str, system_prompt: str):
+         self.agent_name = agent_name
+-        self.llm = ChatOllama(model="llama3.1:latest", temperature=0.7)
++        # Use available Ollama model
++        self.llm = ChatOllama(model="gemma3:4b", temperature=0.7)
+         self.system_prompt = system_prompt
+         self.tools = self._get_available_tools()
+         self.execution_history = []
