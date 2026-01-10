@@ -67,6 +67,22 @@ ai-brain-approve = "approve:main"
 
 [tool.setuptools]
 packages = ["sub_agents", "mcp_servers"]
+py-modules = [
+    "tools",
+    "tools_async",
+    "llm_provider",
+    "config",
+    "output_sanitizer",
+    "context_manager",
+    "cost_tracker",
+    "github_integration",
+    "governance",
+    "self_healing",
+    "emergency_stop",
+    "dynamic_tool_registry",
+    "autonomous_orchestrator",
+    "approve"
+]
 
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.txt", "*.json"]

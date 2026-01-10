@@ -21,13 +21,16 @@ class AutonomousOrchestrator:
         # Initialize sub-agents
         from sub_agents.consulting_agent import ConsultingAgent
         from sub_agents.pr_review_agent import PRReviewAgent
+        from sub_agents.autonomous_builder_agent import AutonomousBuilderAgent
 
         self.agents = {
             "docker": DockerAgent(),
             "config": ConfigAgent(),
             "consulting": ConsultingAgent(),
             "cloud": ConsultingAgent(),  # Cloud questions use consulting agent
-            "pr_review": PRReviewAgent(),  # NEW: Autonomous PR review
+            "pr_review": PRReviewAgent(),  # Autonomous PR review
+            "autonomous_builder": AutonomousBuilderAgent(),  # Full-stack feature builder
+            "design": AutonomousBuilderAgent(),  # Alias for design tasks
             # Add more agents as they're implemented
             # "python": PythonAgent(),
             # "homeassistant": HomeAssistantAgent(),
@@ -63,12 +66,9 @@ class AutonomousOrchestrator:
         
         # Check if this is a design task (complex system building)
         primary_agent_name = routing.get("primary_agent", "general")
-        if primary_agent_name == "design":
-            # Use autonomous builder for design tasks
-            # Pass context so builder can use existing clarifications
-            from autonomous_builder import AutonomousBuilder
-            builder = AutonomousBuilder(environment=context.get("environment", "production") if context else "production")
-            return builder.build_system(task, context=context)
+        if primary_agent_name == "design" or primary_agent_name == "autonomous_builder":
+            # Route to autonomous_builder agent (now integrated in brain)
+            primary_agent_name = "autonomous_builder"
         
         # Check if this is a consultation task (no execution needed)
         task_type = routing.get("analysis", {}).get("task_type") or routing.get("task_type", "execution")

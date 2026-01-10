@@ -30,12 +30,20 @@ class EmergencyStop:
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._stop_flag = threading.Event()
         self._reason = None
         self._stop_file = Path(".emergency_stop")
         self._original_handlers = {}
-        self._setup_signal_handlers()
+
+        # Only setup signal handlers if not in web server mode
+        # Set DISABLE_EMERGENCY_STOP_SIGNALS=1 to disable signal handlers
+        import os
+        if not os.getenv("DISABLE_EMERGENCY_STOP_SIGNALS"):
+            self._setup_signal_handlers()
+        else:
+            print("ℹ️  Emergency stop signal handlers disabled (web server mode)")
+
         self._check_stop_file()
         self._initialized = True
     
@@ -83,11 +91,25 @@ class EmergencyStop:
         except Exception as e:
             print(f"Warning: Could not write stop file: {e}")
     
+    def disable_signal_handlers(self):
+        """Disable signal handlers (for web server mode).
+
+        Call this after initialization to restore original signal handlers.
+        Useful when running in web server environments where SIGINT/SIGTERM
+        should be handled by the web server, not by emergency stop.
+        """
+        if hasattr(self, '_original_handlers') and self._original_handlers:
+            for sig, handler in self._original_handlers.items():
+                if handler is not None:
+                    signal.signal(sig, handler)
+            self._original_handlers.clear()
+            print("ℹ️  Emergency stop signal handlers disabled")
+
     def reset(self):
         """Reset emergency stop (clear flag and stop file)."""
         self._stop_flag.clear()
         self._reason = None
-        
+
         # Remove stop file
         if self._stop_file.exists():
             try:
